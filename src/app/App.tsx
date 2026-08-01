@@ -37,7 +37,7 @@ interface WeekTarget {
   targets: Record<Day,string>; done: Record<Day,boolean>; isActiveWeek:boolean;
 }
 interface KertasTasmi { mustami:string; status:"maqbul"|"mardud"|""; taqdir:string; khoto:number; tanbih:number; catatan:string; }
-interface UjianNilai { hifdz:number; tajwid:number; tartil:number; }
+interface UjianNilai { hifdz:number; tajwid:number; tartil:number; rata?:number;  }
 interface Ujian {
   id:string; santriId:string; muhaffidzId:string; juz:number;
   status:"active"|"submitted"|"completed"; startTime:number;
@@ -748,185 +748,231 @@ function MuhaffidzTarget({ state }: { state:AppState }) {
 }
 
 // ============================= MUHAFFIDZ: UJIAN =============================
-function MuhaffidzUjian({ state }: { state:AppState }) {
+function MuhaffidzUjian({ state }: { state: AppState }) {
   const { currentUser, users, halaqahs, ujians, setUjians } = state;
-  const halaqah = halaqahs.find(h=>h.muhaffidzId===currentUser.id);
-  const santriList = users.filter(u=>halaqah?.santriIds.includes(u.id));
-  const myUjians = ujians.filter(u=>u.muhaffidzId===currentUser.id);
-  const [activateModal,setActivateModal] = useState(false);
-  const [gradeModal,setGradeModal] = useState<Ujian|null>(null);
-  const [viewModal,setViewModal] = useState<Ujian|null>(null);
-  const [actForm,setActForm] = useState({ santriId:santriList[0]?.id??"",juz:1 });
-  const [nilai,setNilai] = useState({ hifdz:0,tajwid:0,tartil:0 });
-  const [timer,setTimer] = useState(0);
-  const activeUjian = myUjians.find(u=>u.status==="active"||u.status==="submitted");
+  const halaqah = halaqahs.find((h) => h.muhaffidzId === currentUser.id);
+  const santriList = users.filter((u) => halaqah?.santriIds.includes(u.id));
+  const myUjians = ujians.filter((u) => u.muhaffidzId === currentUser.id);
 
-  useEffect(()=>{
-    if (!activeUjian) return;
-    const elapsed = Math.floor((Date.now()-activeUjian.startTime)/1000);
+  // State untuk Panel Pengaturan
+  const [selectedSantriId, setSelectedSantriId] = useState(santriList[0]?.id ?? "");
+  const [jmlJuz, setJmlJuz] = useState<number>(3);
+  
+  // State untuk Form Penilaian Akhir
+  const [nilai, setNilai] = useState({ hifdz: 0, tajwid: 0, tartil: 0 });
+  const [timer, setTimer] = useState(0);
+
+  // Mendapatkan ujian yang sedang aktif untuk santri yang DIPILIH di dropdown
+  const activeUjian = myUjians.find(
+    (u) => u.santriId === selectedSantriId && (u.status === "active" || u.status === "submitted")
+  );
+
+  const rataRata = ((nilai.hifdz + nilai.tajwid + nilai.tartil) / 3).toFixed(2);
+
+  // Timer Effect
+  useEffect(() => {
+    if (!activeUjian) {
+      setTimer(0);
+      return;
+    }
+    const elapsed = Math.floor((Date.now() - activeUjian.startTime) / 1000);
     setTimer(elapsed);
-    const iv = setInterval(()=>setTimer(p=>p+1),1000);
-    return ()=>clearInterval(iv);
-  },[activeUjian?.id]);
+    const iv = setInterval(() => setTimer((p) => p + 1), 1000);
+    return () => clearInterval(iv);
+  }, [activeUjian?.id]);
 
+  // Handler Aktivasi
   const aktivasi = () => {
-    if (myUjians.some(u=>u.status==="active")) { alert("Sudah ada ujian aktif!"); return; }
-    setUjians([...ujians,{ id:uid(),santriId:actForm.santriId,muhaffidzId:currentUser.id,juz:actForm.juz,status:"active",startTime:Date.now(),kertasTasmi:emptyKT() }]);
-    setActivateModal(false);
-  };
-  const selesaikan = () => {
-    if (!gradeModal) return;
-    const rata=(nilai.hifdz+nilai.tajwid+nilai.tartil)/3;
-    setUjians(ujians.map(u=>u.id===gradeModal.id?{...u,status:"completed",nilai:{...nilai,rata}}:u));
-    setGradeModal(null); setNilai({hifdz:0,tajwid:0,tartil:0});
+    if (activeUjian) {
+      alert("Santri ini sudah memiliki ujian aktif!");
+      return;
+    }
+    setUjians([
+      ...ujians,
+      {
+        id: uid(),
+        santriId: selectedSantriId,
+        muhaffidzId: currentUser.id,
+        juz: jmlJuz,
+        status: "active",
+        startTime: Date.now(),
+        kertasTasmi: emptyKT(),
+      },
+    ]);
   };
 
-  const completed = myUjians.filter(u=>u.status==="completed");
+  // Handler Selesai
+  const selesaikan = () => {
+    if (!activeUjian) return;
+    setUjians(
+      ujians.map((u) =>
+        u.id === activeUjian.id
+          ? { ...u, status: "completed", nilai: { ...nilai, rata: parseFloat(rataRata) } }
+          : u
+      )
+    );
+    setNilai({ hifdz: 0, tajwid: 0, tartil: 0 });
+  };
+
+  const completed = myUjians.filter((u) => u.status === "completed");
 
   return (
-    <div className="space-y-4">
-      {activeUjian && (
-        <Card className="border-l-4 border-l-[#c5a059]">
-          <div className="p-5">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <Badge color="green">Ujian Aktif</Badge>
-                  {activeUjian.status==="submitted" && <Badge color="gold">Menunggu Penilaian</Badge>}
-                </div>
-                <h3 className="font-playfair font-semibold text-[#113f59] text-lg">
-                  {users.find(u=>u.id===activeUjian.santriId)?.username} — Juz {activeUjian.juz}
-                </h3>
-              </div>
-              <div className="text-center">
-                <div className="font-mono text-2xl font-bold text-[#113f59] bg-[#f0ebd8] px-4 py-2 rounded-xl flex items-center gap-2">
-                  <Clock size={18} className="text-[#c5a059]"/>{fmt(timer)}
-                </div>
-                <p className="text-xs text-[#6b7a8d] mt-1">Durasi Ujian</p>
-              </div>
-            </div>
-            {activeUjian.status==="submitted" && (
-              <>
-                <div className="bg-[#f0ebd8] rounded-xl p-4 mb-4 overflow-x-auto">
-                  <h4 className="font-playfair font-semibold text-[#113f59] mb-3 text-sm">Kertas Tasmi' (Read Only)</h4>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div><span className="text-[#6b7a8d]">Mustami': </span><span className="font-medium">{activeUjian.kertasTasmi.mustami||"-"}</span></div>
-                    <div><span className="text-[#6b7a8d]">Status: </span><Badge color={activeUjian.kertasTasmi.status==="maqbul"?"green":"red"}>{activeUjian.kertasTasmi.status||"-"}</Badge></div>
-                    <div><span className="text-[#6b7a8d]">Taqdir: </span><span className="font-medium">{activeUjian.kertasTasmi.taqdir||"-"}</span></div>
-                    <div className="flex gap-4">
-                      <span><span className="text-[#6b7a8d]">Khoto': </span><Badge color="red">{activeUjian.kertasTasmi.khoto}</Badge></span>
-                      <span><span className="text-[#6b7a8d]">Tanbih: </span><Badge color="gold">{activeUjian.kertasTasmi.tanbih}</Badge></span>
-                    </div>
-                    {activeUjian.kertasTasmi.catatan && <div className="col-span-2"><span className="text-[#6b7a8d]">Catatan: </span>{activeUjian.kertasTasmi.catatan}</div>}
-                  </div>
-                </div>
-                <Btn variant="gold" onClick={()=>{ setGradeModal(activeUjian); setNilai({hifdz:0,tajwid:0,tartil:0}); }} className="w-full justify-center">
-                  <Award size={16}/> Berikan Penilaian
-                </Btn>
-              </>
-            )}
-            {activeUjian.status==="active" && (
-              <div className="flex items-center gap-2 text-sm text-[#6b7a8d] bg-[#f8f5ef] rounded-lg p-3">
-                <AlertCircle size={14} className="text-[#c5a059]"/> Menunggu santri mengisi Kertas Tasmi'...
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-      {!activeUjian && (
-        <Card className="p-5 text-center">
-          <GraduationCap size={40} className="text-[#c5a059]/40 mx-auto mb-3"/>
-          <p className="text-[#6b7a8d] text-sm mb-4">Tidak ada ujian aktif saat ini.</p>
-          <Btn variant="primary" onClick={()=>setActivateModal(true)}><Plus size={14}/>Aktifkan Ujian</Btn>
-        </Card>
-      )}
-
-      {completed.length>0 && (
-        <Card>
-          <CardHeader title="Riwayat Ujian" subtitle={`${completed.length} ujian selesai`} />
-          <div className="p-4 space-y-2">
-            {completed.map(u=>{
-              const santri=users.find(s=>s.id===u.santriId);
-              const rata=u.nilai?Math.round((u.nilai.hifdz+u.nilai.tajwid+u.nilai.tartil)/3):0;
-              return <div key={u.id} className="flex items-center gap-3 p-3 rounded-xl border border-[#c5a059]/20 hover:bg-[#fdfbf7] transition-colors">
-                <Award size={18} className="text-[#c5a059] flex-shrink-0"/>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-[#113f59]">{santri?.username} — Juz {u.juz}</p>
-                  <p className="text-xs text-[#6b7a8d]">Nilai rata-rata: <strong>{rata}</strong></p>
-                </div>
-                <Btn size="sm" variant="ghost" onClick={()=>setViewModal(u)}><Eye size={13}/>Lihat</Btn>
-              </div>;
-            })}
-          </div>
-        </Card>
-      )}
-
-      <Modal open={activateModal} onClose={()=>setActivateModal(false)} title="Aktifkan Ujian Kenaikan Juz">
-        <div className="space-y-4">
-          <Select label="Pilih Santri" value={actForm.santriId} onChange={v=>setActForm(f=>({...f,santriId:v}))}
-            options={santriList.map(s=>({value:s.id,label:s.username}))} />
-          <div className="flex flex-col gap-1"><label className="text-sm font-medium text-[#1c2b3a]">Jumlah Juz</label>
-            <input type="number" value={actForm.juz} min={1} max={30} onChange={e=>setActForm(f=>({...f,juz:+e.target.value}))}
-              className="px-3 py-2 rounded-lg border border-[#c5a059]/30 bg-[#f8f5ef] text-sm focus:outline-none focus:ring-2 focus:ring-[#c5a059]/40"/></div>
-          <div className="flex gap-2 justify-end pt-2">
-            <Btn variant="secondary" onClick={()=>setActivateModal(false)}>Batal</Btn>
-            <Btn variant="primary" onClick={aktivasi}><CheckCircle2 size={14}/>Aktifkan Ujian</Btn>
-          </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-10">
+      {/* 1. PANEL PENGATURAN UJIAN */}
+      <Card className="p-5 border-[#c5a059]/40">
+        <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
+          Panel Pengaturan Ujian (Muhaffidz)
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+          <Select
+            label="Pilih Santri:"
+            value={selectedSantriId}
+            onChange={setSelectedSantriId}
+            options={[
+              { value: "", label: "- Pilih Santri -" },
+              ...santriList.map((s) => ({ value: s.id, label: s.username })),
+            ]}
+          />
+          <Input
+            label="Jumlah Juz Ujian:"
+            type="number"
+            value={jmlJuz.toString()}
+            onChange={(v) => setJmlJuz(Number(v))}
+          />
+          <Btn variant="primary" onClick={aktivasi} className="w-full py-2.5 bg-[#113f59] text-white">
+            Aktifkan Ujian & Durasi
+          </Btn>
         </div>
-      </Modal>
+      </Card>
 
-      <Modal open={!!gradeModal} onClose={()=>setGradeModal(null)} title="Penilaian Ujian">
-        {gradeModal && <div className="space-y-4">
-          <p className="text-sm text-[#6b7a8d]">Santri: <strong className="text-[#113f59]">{users.find(u=>u.id===gradeModal.santriId)?.username}</strong> — Juz {gradeModal.juz}</p>
-          {["hifdz","tajwid","tartil"].map(k=>(
-            <div key={k} className="flex flex-col gap-1">
-              <div className="flex justify-between"><label className="text-sm font-medium text-[#1c2b3a] capitalize">{k==="hifdz"?"Hifdz":k.charAt(0).toUpperCase()+k.slice(1)}</label>
-                <span className="text-sm font-bold text-[#c5a059]">{(nilai as any)[k]}</span></div>
-              <input type="range" min={0} max={100} value={(nilai as any)[k]} onChange={e=>setNilai(n=>({...n,[k]:+e.target.value}))}
-                className="accent-[#c5a059]"/>
+      {activeUjian && (
+        <>
+          {/* 2. STATUS UJIAN */}
+          <Card className="p-4 bg-[#fdfbf7] flex justify-between items-center border-[#c5a059]/30">
+            <div>
+              <p className="text-sm font-bold text-[#1c2b3a]">
+                Status Ujian: <span className="text-green-600">PERSIAPAN</span>
+              </p>
+              <p className="text-sm text-[#6b7a8d]">Jumlah Juz: {activeUjian.juz} Juz</p>
             </div>
-          ))}
-          <div className="bg-[#113f59] text-white rounded-xl p-4 text-center">
-            <p className="text-sm opacity-80">Nilai Rata-rata</p>
-            <p className="text-3xl font-playfair font-bold text-[#c5a059]">{Math.round((nilai.hifdz+nilai.tajwid+nilai.tartil)/3)}</p>
-          </div>
-          <div className="flex gap-2 justify-end">
-            <Btn variant="secondary" onClick={()=>setGradeModal(null)}>Batal</Btn>
-            <Btn variant="primary" onClick={selesaikan}><CheckCircle2 size={14}/>Selesaikan Ujian</Btn>
-          </div>
-        </div>}
-      </Modal>
+            <div className="text-right">
+              <p className="text-xs text-[#6b7a8d] mb-1">Durasi Ujian:</p>
+              <p className="text-xl font-mono font-bold text-[#113f59] bg-white px-3 py-1 rounded border border-[#c5a059]/20">
+                {fmt(timer)}
+              </p>
+            </div>
+          </Card>
 
-      <Modal open={!!viewModal} onClose={()=>setViewModal(null)} title="Detail Hasil Ujian" wide>
-        {viewModal && <div className="space-y-5">
-          <div className="flex items-center gap-4">
-            <div className="bg-[#113f59] text-white rounded-xl px-5 py-4 text-center">
-              <p className="text-xs opacity-70">Nilai Akhir</p>
-              <p className="text-4xl font-playfair font-bold text-[#c5a059]">{viewModal.nilai?Math.round((viewModal.nilai.hifdz+viewModal.nilai.tajwid+viewModal.nilai.tartil)/3):"-"}</p>
-            </div>
-            <div className="grid grid-cols-3 gap-3 flex-1">
-              {viewModal.nilai && Object.entries({Hifdz:viewModal.nilai.hifdz,Tajwid:viewModal.nilai.tajwid,Tartil:viewModal.nilai.tartil}).map(([k,v])=>(
-                <div key={k} className="bg-[#f0ebd8] rounded-xl p-3 text-center">
-                  <p className="text-xs text-[#6b7a8d]">{k}</p>
-                  <p className="text-2xl font-playfair font-bold text-[#113f59]">{v}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-          <Divider/>
-          <h4 className="font-playfair font-semibold text-[#113f59]">Kertas Tasmi'</h4>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Mustami'</span><span className="font-medium">{viewModal.kertasTasmi.mustami||"-"}</span></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Status</span><Badge color={viewModal.kertasTasmi.status==="maqbul"?"green":"red"}>{viewModal.kertasTasmi.status}</Badge></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Taqdir</span><span className="font-medium">{viewModal.kertasTasmi.taqdir||"-"}</span></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3 flex gap-4">
-              <div><span className="text-[#6b7a8d] block text-xs">Khoto'</span><Badge color="red">{viewModal.kertasTasmi.khoto}</Badge></div>
-              <div><span className="text-[#6b7a8d] block text-xs">Tanbih</span><Badge color="gold">{viewModal.kertasTasmi.tanbih}</Badge></div>
-            </div>
-            {viewModal.kertasTasmi.catatan && <div className="col-span-2 bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Catatan</span><span>{viewModal.kertasTasmi.catatan}</span></div>}
-          </div>
-        </div>}
-      </Modal>
+          {/* 3. KERTAS TASMI' (Read-Only Table) */}
+          <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">Kertas Tasmi'</div>
+          <Card className="overflow-x-auto shadow-sm border-[#113f59]/20">
+            <table className="w-full text-sm text-center" dir="rtl">
+              <thead className="bg-[#113f59] text-white">
+                <tr>
+                  <th className="py-3 px-2 border-l border-white/20">رقم</th>
+                  <th className="py-3 px-2 border-l border-white/20">جزء</th>
+                  <th className="py-3 px-2 border-l border-white/20">تنبيه</th>
+                  <th className="py-3 px-2 border-l border-white/20">خطأ</th>
+                  <th className="py-3 px-2 border-l border-white/20">تقدير</th>
+                  <th className="py-3 px-2 border-l border-white/20">مقبول/مردود</th>
+                  <th className="py-3 px-2">مستمع</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Looping baris sesuai jumlah juz dari ujian aktif */}
+                {Array.from({ length: activeUjian.juz }).map((_, i) => (
+                  <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">جزء {i + 1}</td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                      <div className="flex justify-center items-center gap-1">
+                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button>
+                        <input disabled value="0" className="w-8 text-center bg-gray-50 border border-gray-200" />
+                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                       <div className="flex justify-center items-center gap-1">
+                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button>
+                        <input disabled value="0" className="w-8 text-center bg-gray-50 border border-gray-200" />
+                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button>
+                      </div>
+                    </td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                       <select disabled className="bg-gray-50 border border-gray-200 rounded px-1 cursor-not-allowed">
+                         <option>- ممتاز -</option>
+                       </select>
+                    </td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                       <select disabled className="bg-gray-50 border border-gray-200 rounded px-1 cursor-not-allowed">
+                         <option>- مقبول -</option>
+                       </select>
+                    </td>
+                    <td className="py-2 px-2">
+                       <input disabled placeholder="الأخ/الأستاذ" className="w-full text-center bg-gray-50 border border-gray-200" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+
+          {/* 4. FORM PENILAIAN AKHIR UJIAN */}
+          <Card className="p-5 border-[#c5a059]/40">
+             <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
+               Form Penilaian Akhir Ujian (Muhaffidz)
+             </h3>
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <Input label="Nilai Hifdz (0-100):" type="number" value={nilai.hifdz.toString()} onChange={v => setNilai({...nilai, hifdz: Number(v)})} />
+                <Input label="Nilai Tajwid (0-100):" type="number" value={nilai.tajwid.toString()} onChange={v => setNilai({...nilai, tajwid: Number(v)})} />
+                <Input label="Nilai Tartil (0-100):" type="number" value={nilai.tartil.toString()} onChange={v => setNilai({...nilai, tartil: Number(v)})} />
+             </div>
+             <div className="flex flex-col md:flex-row justify-between items-center bg-[#f8f5ef] p-3 rounded-lg border border-[#c5a059]/20">
+                <p className="font-bold text-[#1c2b3a] mb-2 md:mb-0">
+                  Hasil Akhir (Rata-rata): <span className="text-[#113f59]">{rataRata}</span>
+                </p>
+                <Btn variant="primary" onClick={selesaikan} className="bg-[#113f59]">
+                  Simpan Penilaian & Selesaikan Ujian
+                </Btn>
+             </div>
+          </Card>
+        </>
+      )}
+
+      {/* 5. RIWAYAT UJIAN */}
+      <Card className="p-5 border-[#c5a059]/40 mt-8">
+         <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
+           Riwayat Ujian Kenaikan Juz Selesai
+         </h3>
+         <table className="w-full text-sm text-center">
+            <thead className="bg-[#113f59] text-white">
+              <tr>
+                <th className="py-2.5 px-3">No</th>
+                <th className="py-2.5 px-3">Nama Santri</th>
+                <th className="py-2.5 px-3">Jumlah Juz</th>
+                <th className="py-2.5 px-3">Hasil Akhir</th>
+                <th className="py-2.5 px-3">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+               {completed.length === 0 ? (
+                 <tr><td colSpan={5} className="py-4 text-[#6b7a8d] italic">Memuat riwayat...</td></tr>
+               ) : (
+                 completed.map((u, i) => (
+                   <tr key={u.id} className="border-b border-[#c5a059]/20">
+                     <td className="py-2.5">{i + 1}</td>
+                     <td className="py-2.5 font-bold">{users.find(s => s.id === u.santriId)?.username}</td>
+                     <td className="py-2.5">{u.juz} Juz</td>
+                     <td className="py-2.5 text-green-600 font-bold">{u.nilai?.rata || 0}</td>
+                     <td className="py-2.5">
+                       <Btn variant="primary" size="sm" className="bg-[#113f59] px-4 py-1">Lihat</Btn>
+                     </td>
+                   </tr>
+                 ))
+               )}
+            </tbody>
+         </table>
+      </Card>
     </div>
   );
 }

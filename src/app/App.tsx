@@ -41,7 +41,7 @@ interface UjianNilai { hifdz:number; tajwid:number; tartil:number; rata?:number;
 interface Ujian {
   id:string; santriId:string; muhaffidzId:string; juz:number;
   status:"active"|"submitted"|"completed"; startTime:number;
-  kertasTasmi:KertasTasmi; nilai?:UjianNilai;
+  kertasTasmi:KertasTasmi[]; nilai?:UjianNilai;
 }
 
 // ============================= INITIAL DATA =============================
@@ -85,7 +85,7 @@ const INIT_ZIYADAH: ZiyadahRekap[] = [
     evaluasi:"Pekan kedua baik namun ada penurunan di akhir pekan. Perlu motivasi tambahan.",targetPekanan:"Menyelesaikan Al-Baqarah 31-65" },
 ];
 const INIT_UJIAN: Ujian[] = [
-  { id:"uj1",santriId:"u5",muhaffidzId:"u2",juz:1,status:"active",startTime:Date.now()-1800000,kertasTasmi:emptyKT() },
+  { id:"uj1",santriId:"u5",muhaffidzId:"u2",juz:1,status:"active",startTime:Date.now()-1800000,kertasTasmi:[] },
 ];
 
 // ============================= HELPERS =============================
@@ -787,6 +787,18 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
       alert("Santri ini sudah memiliki ujian aktif!");
       return;
     }
+    // Logika +5 baris cadangan
+  const totalBaris = jmlJuz + 5; 
+  
+  // Tambahkan ": KertasTasmi" setelah kurung parameter ()
+  const initialKertasTasmi = Array.from({ length: totalBaris }).map((): KertasTasmi => ({
+    mustami: "",
+    status: "", // Sekarang TypeScript tahu ini adalah tipe kosong khusus dari status
+    taqdir: "", // Sama halnya dengan taqdir, agar tidak dianggap string sembarangan
+    khoto: 0,
+    tanbih: 0,
+    catatan: "",
+  }));
     setUjians([
       ...ujians,
       {
@@ -796,7 +808,7 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
         juz: jmlJuz,
         status: "active",
         startTime: Date.now(),
-        kertasTasmi: emptyKT(),
+        kertasTasmi: initialKertasTasmi,
       },
     ]);
   };
@@ -1126,153 +1138,149 @@ function SantriTarget({ state }: { state:AppState }) {
 }
 
 // ============================= SANTRI: UJIAN =============================
-function SantriUjian({ state }: { state:AppState }) {
+function SantriUjian({ state }: { state: AppState }) {
   const { currentUser, ujians, setUjians } = state;
-  const myUjians = ujians.filter(u=>u.santriId===currentUser.id);
-  const activeUjian = myUjians.find(u=>u.status==="active");
-  const [kt,setKt] = useState<KertasTasmi>(emptyKT());
-  const [viewModal,setViewModal] = useState<Ujian|null>(null);
-  const [timer,setTimer] = useState(0);
 
-  useEffect(()=>{
+  // Cari ujian santri yang sedang aktif
+  const activeUjian = ujians.find(
+    (u) => u.santriId === currentUser.id && u.status === "active"
+  );
+
+  // Fungsi helper untuk update data tabel per baris
+  const updateBaris = (index: number, field: string, value: string | number) => {
     if (!activeUjian) return;
-    setKt({...activeUjian.kertasTasmi});
-    const elapsed=Math.floor((Date.now()-activeUjian.startTime)/1000);
-    setTimer(elapsed);
-    const iv=setInterval(()=>setTimer(p=>p+1),1000);
-    return ()=>clearInterval(iv);
-  },[activeUjian?.id]);
-
-  const submit = () => {
-    if (!activeUjian||!kt.mustami) { alert("Lengkapi nama mustami'!"); return; }
-    setUjians(ujians.map(u=>u.id===activeUjian.id?{...u,status:"submitted",kertasTasmi:kt}:u));
+    setUjians(
+      ujians.map((u) => {
+        if (u.id === activeUjian.id) {
+          const newKertas = [...u.kertasTasmi];
+          newKertas[index] = { ...newKertas[index], [field]: value };
+          return { ...u, kertasTasmi: newKertas };
+        }
+        return u;
+      })
+    );
   };
 
-  const counter = (field:"khoto"|"tanbih",delta:number) =>
-    setKt(k=>({...k,[field]:Math.max(0,k[field]+delta)}));
+  const ubahCount = (index: number, field: "khoto" | "tanbih", delta: number) => {
+    if (!activeUjian) return;
+    const currentVal = activeUjian.kertasTasmi[index][field] || 0;
+    let newVal = currentVal + delta;
+    if (newVal < 0) newVal = 0; // Cegah minus
+    updateBaris(index, field, newVal);
+  };
 
-  const completed = myUjians.filter(u=>u.status==="completed");
+  if (!activeUjian) {
+    return (
+      <div className="text-center text-gray-500 py-10">
+        Belum ada ujian yang diaktifkan oleh Muhaffidz.
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {activeUjian && (
-        <Card className="border-t-4 border-t-[#c5a059]">
-          <div className="p-5">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <Badge color="green">Ujian Aktif</Badge>
-                <h2 className="font-playfair font-bold text-[#113f59] text-xl mt-1">Juz {activeUjian.juz}</h2>
-              </div>
-              <div className="text-center bg-[#113f59] text-white rounded-xl px-4 py-2">
-                <div className="font-mono text-xl font-bold text-[#c5a059] flex items-center gap-1.5">
-                  <Clock size={16}/>{fmt(timer)}
-                </div>
-                <p className="text-xs text-white/60">Durasi</p>
-              </div>
-            </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-10">
+      {/* Banner Status Ujian (Bisa gunakan komponen Card timer yang sama dengan guru) */}
+      <Card className="p-4 bg-[#fdfbf7] flex justify-between items-center border-[#c5a059]/30">
+         <div>
+            <p className="text-sm font-bold text-[#1c2b3a]">
+               Status Ujian: <span className="text-green-600">PERSIAPAN</span>
+            </p>
+            <p className="text-sm text-[#6b7a8d]">Jumlah Juz: {activeUjian.juz} Juz</p>
+         </div>
+         {/* Timer di sini */}
+      </Card>
 
-            {activeUjian.status==="active" ? (
-              <div className="space-y-5">
-                <h3 className="font-playfair font-semibold text-[#113f59] text-base border-b border-[#c5a059]/20 pb-2">Kertas Tasmi'</h3>
-                <Input label="Nama Mustami'" value={kt.mustami} onChange={v=>setKt(k=>({...k,mustami:v}))} placeholder="Nama yang menyimak..." />
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-sm font-medium text-[#1c2b3a]">Status</label>
-                    <div className="flex gap-2">
-                      {(["maqbul","mardud"] as const).map(s=>(
-                        <button key={s} onClick={()=>setKt(k=>({...k,status:s}))}
-                          className={cn("flex-1 py-2 rounded-lg text-sm font-medium border transition-all capitalize",
-                            kt.status===s ? (s==="maqbul"?"bg-green-500 border-green-500 text-white":"bg-red-500 border-red-500 text-white") : "bg-[#f8f5ef] border-[#c5a059]/30 text-[#6b7a8d] hover:border-[#c5a059]")}>
-                          {s}
-                        </button>
-                      ))}
-                    </div>
+      <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">
+        Kertas Tasmi'
+      </div>
+
+      <Card className="overflow-x-auto shadow-sm border-[#113f59]/20">
+        <table className="w-full text-sm text-center" dir="rtl">
+          <thead className="bg-[#113f59] text-white">
+            <tr>
+              <th className="py-3 px-2 border-l border-white/20 w-12">رقم</th>
+              <th className="py-3 px-2 border-l border-white/20 w-24">جزء</th>
+              <th className="py-3 px-2 border-l border-white/20 w-32">تنبيه</th>
+              <th className="py-3 px-2 border-l border-white/20 w-32">خطأ</th>
+              <th className="py-3 px-2 border-l border-white/20">تقدير</th>
+              <th className="py-3 px-2 border-l border-white/20">مقبول/مردود</th>
+              <th className="py-3 px-2">مستمع</th>
+            </tr>
+          </thead>
+          <tbody>
+            {activeUjian.kertasTasmi.map((row: any, i: number) => (
+              <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
+                {/* Nomor Urut */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
+                
+                {/* Nama Juz (Otomatis ulang angka 1 atau biarkan bisa diedit jika perlu) */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                  جزء {i < activeUjian.juz ? 1 : 1 /* Sesuaikan label juz */}
+                </td>
+
+                {/* Tanbih */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                  <div className="flex justify-center items-center gap-1">
+                    <button onClick={() => ubahCount(i, "tanbih", -1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">-</button>
+                    <input readOnly value={row.tanbih} className="w-8 text-center bg-transparent font-bold" />
+                    <button onClick={() => ubahCount(i, "tanbih", 1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">+</button>
                   </div>
-                  <Select label="Taqdir" value={kt.taqdir} onChange={v=>setKt(k=>({...k,taqdir:v}))}
-                    options={[{value:"",label:"— Pilih —"},...TAQDIR.map(t=>({value:t,label:t}))]} />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {(["khoto","tanbih"] as const).map(field=>(
-                    <div key={field} className="flex flex-col gap-2">
-                      <label className="text-sm font-medium text-[#1c2b3a] capitalize">{field==="khoto"?"Khoto'":"Tanbih"}</label>
-                      <div className="flex items-center gap-2">
-                        <button onClick={()=>counter(field,-1)} className={cn("w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-all",field==="khoto"?"border-red-400 text-red-500 hover:bg-red-50":"border-[#c5a059] text-[#c5a059] hover:bg-[#f0ebd8]")}><Minus size={16}/></button>
-                        <span className="flex-1 text-center text-2xl font-playfair font-bold text-[#113f59]">{kt[field]}</span>
-                        <button onClick={()=>counter(field,1)} className={cn("w-10 h-10 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-all",field==="khoto"?"border-red-400 text-red-500 hover:bg-red-50":"border-[#c5a059] text-[#c5a059] hover:bg-[#f0ebd8]")}><Plus size={16}/></button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Textarea label="Catatan" value={kt.catatan} onChange={v=>setKt(k=>({...k,catatan:v}))} rows={2} />
-                <Btn variant="gold" onClick={submit} className="w-full justify-center py-3">
-                  <Bell size={16}/> Kirim ke Muhaffidz
-                </Btn>
-              </div>
-            ) : (
-              <div className="text-center py-6">
-                <CheckCircle2 size={40} className="text-green-500 mx-auto mb-3"/>
-                <p className="text-[#113f59] font-medium">Kertas Tasmi' telah dikirim.</p>
-                <p className="text-sm text-[#6b7a8d] mt-1">Menunggu penilaian dari Muhaffidz...</p>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-      {!activeUjian && completed.length===0 && (
-        <Card className="p-10 text-center">
-          <Award size={48} className="text-[#c5a059]/30 mx-auto mb-3"/>
-          <p className="text-[#6b7a8d]">Tidak ada ujian aktif saat ini.</p>
-        </Card>
-      )}
-      {completed.length>0 && (
-        <Card>
-          <CardHeader title="Riwayat Ujian" subtitle={`${completed.length} ujian selesai`} />
-          <div className="p-4 space-y-2">
-            {completed.map(u=>{
-              const rata=u.nilai?Math.round((u.nilai.hifdz+u.nilai.tajwid+u.nilai.tartil)/3):0;
-              return <div key={u.id} className="flex items-center gap-3 p-3 rounded-xl border border-[#c5a059]/20 hover:bg-[#fdfbf7] transition-colors">
-                <div className="w-12 h-12 rounded-xl bg-[#113f59] flex items-center justify-center flex-shrink-0">
-                  <span className="font-playfair font-bold text-[#c5a059] text-lg">{rata}</span>
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-sm text-[#113f59]">Juz {u.juz}</p>
-                  <p className="text-xs text-[#6b7a8d]">Hifdz: {u.nilai?.hifdz} · Tajwid: {u.nilai?.tajwid} · Tartil: {u.nilai?.tartil}</p>
-                </div>
-                <Btn size="sm" variant="ghost" onClick={()=>setViewModal(u)}><Eye size={13}/>Detail</Btn>
-              </div>;
-            })}
-          </div>
-        </Card>
-      )}
-      <Modal open={!!viewModal} onClose={()=>setViewModal(null)} title="Hasil Ujian" wide>
-        {viewModal && <div className="space-y-5">
-          <div className="bg-[#113f59] rounded-2xl p-5 text-white text-center">
-            <p className="text-sm opacity-70 mb-1">Nilai Akhir</p>
-            <p className="text-5xl font-playfair font-bold text-[#c5a059]">{viewModal.nilai?Math.round((viewModal.nilai.hifdz+viewModal.nilai.tajwid+viewModal.nilai.tartil)/3):"-"}</p>
-            <p className="text-xs opacity-60 mt-1">Juz {viewModal.juz}</p>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            {viewModal.nilai && Object.entries({Hifdz:viewModal.nilai.hifdz,Tajwid:viewModal.nilai.tajwid,Tartil:viewModal.nilai.tartil}).map(([k,v])=>(
-              <div key={k} className="bg-[#f0ebd8] rounded-xl p-4 text-center">
-                <p className="text-xs text-[#6b7a8d]">{k}</p>
-                <p className="text-2xl font-playfair font-bold text-[#113f59]">{v}</p>
-              </div>
+                </td>
+
+                {/* Khoto' */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                  <div className="flex justify-center items-center gap-1">
+                    <button onClick={() => ubahCount(i, "khoto", -1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">-</button>
+                    <input readOnly value={row.khoto} className="w-8 text-center bg-transparent font-bold" />
+                    <button onClick={() => ubahCount(i, "khoto", 1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">+</button>
+                  </div>
+                </td>
+
+                {/* Taqdir */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                  <select 
+                    value={row.taqdir} 
+                    onChange={(e) => updateBaris(i, "taqdir", e.target.value)}
+                    className="w-full bg-transparent border-none text-center outline-none cursor-pointer"
+                  >
+                    <option value="">- اختر -</option>
+                    <option value="mumtaz">- ممتاز -</option>
+                    <option value="jayyid_jiddan">- جيد جدا -</option>
+                    <option value="jayyid">- جيد -</option>
+                    <option value="maqbul">- مقبول -</option>
+                  </select>
+                </td>
+
+                {/* Maqbul / Mardud */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">
+                  <select 
+                    value={row.status} 
+                    onChange={(e) => updateBaris(i, "status", e.target.value)}
+                    className="w-full bg-transparent border-none text-center outline-none cursor-pointer"
+                  >
+                    <option value="">- اختر -</option>
+                    <option value="maqbul">- مقبول -</option>
+                    <option value="mardud">- مردود -</option>
+                  </select>
+                </td>
+
+                {/* Nama Mustami' */}
+                <td className="py-2 px-2">
+                  <input 
+                    type="text"
+                    placeholder="الأخ/الأستاذ" 
+                    value={row.mustami}
+                    onChange={(e) => updateBaris(i, "mustami", e.target.value)}
+                    className="w-full text-center bg-transparent border-none outline-none" 
+                  />
+                </td>
+              </tr>
             ))}
-          </div>
-          <Divider/>
-          <h4 className="font-playfair font-semibold text-[#113f59]">Kertas Tasmi'</h4>
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Mustami'</span><span className="font-medium">{viewModal.kertasTasmi.mustami}</span></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Status</span><Badge color={viewModal.kertasTasmi.status==="maqbul"?"green":"red"}>{viewModal.kertasTasmi.status}</Badge></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Taqdir</span><span className="font-medium">{viewModal.kertasTasmi.taqdir}</span></div>
-            <div className="bg-[#f8f5ef] rounded-lg p-3 flex gap-4">
-              <div><span className="text-[#6b7a8d] block text-xs">Khoto'</span><Badge color="red">{viewModal.kertasTasmi.khoto}</Badge></div>
-              <div><span className="text-[#6b7a8d] block text-xs">Tanbih</span><Badge color="gold">{viewModal.kertasTasmi.tanbih}</Badge></div>
-            </div>
-            {viewModal.kertasTasmi.catatan && <div className="col-span-2 bg-[#f8f5ef] rounded-lg p-3"><span className="text-[#6b7a8d] block text-xs">Catatan</span>{viewModal.kertasTasmi.catatan}</div>}
-          </div>
-        </div>}
-      </Modal>
+          </tbody>
+        </table>
+      </Card>
+      
+      {/* Tombol Kirim (Opsional jika santri butuh trigger manual) */}
     </div>
   );
 }

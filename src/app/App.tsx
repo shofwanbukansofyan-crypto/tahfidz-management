@@ -5,6 +5,7 @@ import {
   Target, BarChart3, BookMarked, AlertCircle, CheckCircle2, Award,
   ChevronLeft, ChevronRight, UserCheck, Layers, Bell
 } from "lucide-react";
+import { toast } from "sonner"; // Sesuaikan jika menggunakan library toast lain
 
 // ============================= TYPES =============================
 type Role = "admin" | "muhaffidz" | "santri";
@@ -813,6 +814,16 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
     ]);
   };
 
+  // 1. Tambahkan useEffect untuk memicu Toast Notifikasi
+  useEffect(() => {
+    if (activeUjian && activeUjian.status === "submitted") {
+      // Memunculkan pop-up notifikasi di layar Muhaffidz
+      toast.info("Santri Siap Dinilai! 🔔", {
+        description: "Santri telah menyelesaikan setoran. Silakan periksa Kertas Tasmi' dan berikan penilaian akhir.",
+      });
+    }
+  }, [activeUjian?.status]); // Hanya terpanggil jika status ujian yang aktif berubah
+
   // Handler Selesai
   const selesaikan = () => {
     if (!activeUjian) return;
@@ -874,7 +885,19 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
               </p>
             </div>
           </Card>
-
+{/* Banner Notifikasi Standby */}
+          {activeUjian.status === "submitted" && (
+            <div className="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg flex items-start md:items-center gap-3 shadow-sm animate-in fade-in slide-in-from-top-4">
+              <span className="text-2xl">✅</span>
+              <div>
+                <p className="font-bold text-base">Santri Siap Diuji / Dinilai!</p>
+                <p className="text-sm mt-1">
+                  Kertas Tasmi' telah dikirim oleh santri/mustami'. Silakan evaluasi tabel di bawah dan kunci nilai di Form Penilaian Akhir.
+                </p>
+              </div>
+            </div>
+          )}
+          
           {/* 3. KERTAS TASMI' (Read-Only Table) */}
           <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">Kertas Tasmi'</div>
           <Card className="overflow-x-auto shadow-sm border-[#113f59]/20">
@@ -892,7 +915,7 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
               </thead>
               <tbody>
                 {/* Looping baris sesuai jumlah juz dari ujian aktif */}
-                {Array.from({ length: activeUjian.juz }).map((_, i) => (
+                {Array.from({ length: activeUjian.juz + 5}).map((_, i) => (
                   <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
                     <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
                     <td className="py-2 px-2 border-l border-[#c5a059]/20">جزء {i + 1}</td>
@@ -1177,6 +1200,21 @@ function SantriUjian({ state }: { state: AppState }) {
     );
   }
 
+  // 1. Buat fungsi pengiriman
+  const kirimKeMuhaffidz = () => {
+    if (!activeUjian) return;
+    
+    setUjians(
+      ujians.map((u) => 
+        u.id === activeUjian.id ? { ...u, status: "submitted" } : u
+      )
+    );
+    
+    toast.success("Berhasil dikirim!", {
+      description: "Kertas Tasmi' berhasil dikirim. Menunggu penilaian Muhaffidz."
+    });
+  };
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10">
       {/* Banner Status Ujian (Bisa gunakan komponen Card timer yang sama dengan guru) */}
@@ -1273,12 +1311,30 @@ function SantriUjian({ state }: { state: AppState }) {
                     onChange={(e) => updateBaris(i, "mustami", e.target.value)}
                     className="w-full text-center bg-transparent border-none outline-none" 
                   />
+
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      {/* Tombol Kirim */}
+      {activeUjian.status === "active" && (
+        <div className="mt-6 flex justify-center">
+          <button 
+            onClick={kirimKeMuhaffidz}
+            className="w-full md:w-1/2 py-3 bg-[#c5a059] hover:bg-[#b08d4a] text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2"
+          >
+            🔔 Kirim ke Muhaffidz
+          </button>
+        </div>
+      )}
+      
+      {activeUjian.status === "submitted" && (
+        <div className="mt-6 text-center text-[#c5a059] font-bold py-3 bg-[#c5a059]/10 rounded-lg">
+          Kertas Tasmi' telah dikirim. Menunggu penilaian akhir Guru...
+        </div>
+      )}
       
       {/* Tombol Kirim (Opsional jika santri butuh trigger manual) */}
     </div>

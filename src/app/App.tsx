@@ -814,6 +814,21 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
     ]);
   };
 
+  // Fungsi agar Muhaffidz bisa mengubah baris tertentu (untuk kasus kecurangan)
+  const updateBarisMuhaffidz = (index: number, field: string, value: string) => {
+    if (!activeUjian) return;
+    setUjians(
+      ujians.map((u) => {
+        if (u.id === activeUjian.id) {
+          const newKertas = [...u.kertasTasmi];
+          newKertas[index] = { ...newKertas[index], [field]: value };
+          return { ...u, kertasTasmi: newKertas };
+        }
+        return u;
+      })
+    );
+  };
+
   // 1. Tambahkan useEffect untuk memicu Toast Notifikasi
   useEffect(() => {
     if (activeUjian && activeUjian.status === "submitted") {
@@ -938,11 +953,17 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
                          <option>- ممتاز -</option>
                        </select>
                     </td>
-                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                       <select disabled className="bg-gray-50 border border-gray-200 rounded px-1 cursor-not-allowed">
-                         <option>- مقبول -</option>
-                       </select>
-                    </td>
+                   <td className="py-2 px-2 border-l border-[#c5a059]/20">
+  <select 
+    value={activeUjian.kertasTasmi[i]?.status || ""} 
+    onChange={(e) => updateBarisMuhaffidz(i, "status", e.target.value)}
+    className="w-full bg-transparent border-none text-center outline-none cursor-pointer text-[#113f59]"
+  >
+    <option value="">- اختر -</option>
+    <option value="maqbul">- مقبول -</option>
+    <option value="mardud">- مردود -</option>
+  </select>
+</td>
                     <td className="py-2 px-2">
                        <input disabled placeholder="الأخ/الأستاذ" className="w-full text-center bg-gray-50 border border-gray-200" />
                     </td>
@@ -1200,9 +1221,18 @@ function SantriUjian({ state }: { state: AppState }) {
     );
   }
 
-  // 1. Buat fungsi pengiriman
+ // Menghitung total juz yang sudah berstatus 'maqbul'
+  const jumlahMaqbul = activeUjian?.kertasTasmi.filter(row => row.status === "maqbul").length || 0;
+  
+  // Indikator bahwa tasmi selesai (jumlah maqbul sama dengan target juz)
+  const isTasmiSelesai = activeUjian && jumlahMaqbul === activeUjian.juz;
+
   const kirimKeMuhaffidz = () => {
     if (!activeUjian) return;
+
+    // Pop-up Konfirmasi
+    const konfirmasi = window.confirm("Antum sudah siap untuk ujian?");
+    if (!konfirmasi) return; // Batal kirim jika user memilih 'Cancel'
     
     setUjians(
       ujians.map((u) => 
@@ -1318,8 +1348,8 @@ function SantriUjian({ state }: { state: AppState }) {
           </tbody>
         </table>
       </Card>
-      {/* Tombol Kirim */}
-      {activeUjian.status === "active" && (
+      {/* Tombol Kirim akan muncul hanya jika tasmi sudah selesai */}
+      {activeUjian.status === "active" && isTasmiSelesai && (
         <div className="mt-6 flex justify-center">
           <button 
             onClick={kirimKeMuhaffidz}
@@ -1329,10 +1359,11 @@ function SantriUjian({ state }: { state: AppState }) {
           </button>
         </div>
       )}
-      
-      {activeUjian.status === "submitted" && (
-        <div className="mt-6 text-center text-[#c5a059] font-bold py-3 bg-[#c5a059]/10 rounded-lg">
-          Kertas Tasmi' telah dikirim. Menunggu penilaian akhir Guru...
+
+      {/* Pesan info jika belum selesai */}
+      {activeUjian.status === "active" && !isTasmiSelesai && (
+        <div className="mt-6 text-center text-sm text-[#6b7a8d] italic">
+          *Tombol kirim akan muncul setelah {activeUjian.juz} Juz diselesaikan (berstatus "مقبول").
         </div>
       )}
       

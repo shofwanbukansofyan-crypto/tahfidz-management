@@ -3,7 +3,7 @@ import {
   BookOpen, Users, LogOut, Plus, Edit2, Trash2, Check, X, Clock,
   Eye, EyeOff, Menu, ChevronDown, Minus, Shield, GraduationCap,
   Target, BarChart3, BookMarked, AlertCircle, CheckCircle2, Award,
-  ChevronLeft, ChevronRight, UserCheck, Layers, Bell
+  ChevronLeft, ChevronRight, UserCheck, Layers, Bell, Search
 } from "lucide-react";
 import { toast } from "sonner"; // Sesuaikan jika menggunakan library toast lain
 
@@ -564,6 +564,15 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
     else setZiyadahs([...ziyadahs,form]);
     setModal(null);
   };
+// State untuk menyimpan teks pencarian
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Logika filter: cocokan nama santri dengan teks pencarian
+  const filteredZiyadahs = myZiyadahs.filter((z) => {
+    const santri = users.find((u) => u.id === z.santriId);
+    return santri?.username?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   const del = (id:string) => { if (confirm("Hapus rekap ini?")) setZiyadahs(ziyadahs.filter(z=>z.id!==id)); };
   const updateDay = (day:Day,field:keyof ZiyadahDay,val:string) =>
     setForm(f=>({...f,days:{...f.days,[day]:{...f.days[day],[field]:val}}}));
@@ -571,32 +580,71 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
   return (
     <div className="space-y-4">
       <Card>
-        <CardHeader title="Rekap Ziyadah" subtitle={`${myZiyadahs.length} rekap tersimpan`}
-          action={<Btn onClick={openAdd} size="sm"><Plus size={14}/>Buat Rekap</Btn>} />
+        <CardHeader 
+          title="Rekap Ziyadah" 
+          subtitle={`${filteredZiyadahs.length} rekap ditampilkan`}
+          action={
+            <div className="flex items-center gap-2">
+              {/* --- Search Bar Baru --- */}
+              <div className="relative flex items-center">
+                <Search size={14} className="absolute left-2.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Cari santri..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-[#113f59] focus:ring-1 focus:ring-[#113f59] bg-gray-50 min-w-[150px] md:min-w-[200px]"
+                />
+              </div>
+              {/* ----------------------- */}
+              
+              <Btn onClick={openAdd} size="sm">
+                <Plus size={14}/>Buat Rekap
+              </Btn>
+            </div>
+          } 
+        />
         <div className="p-4 overflow-x-auto">
           <table className="w-full text-sm">
-            <thead><tr className="border-b border-[#c5a059]/20">
-              <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">No</th>
-              <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Nama Santri</th>
-              <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Pekan</th>
-              <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Tanggal</th>
-              <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Aksi</th>
-            </tr></thead>
-            <tbody>{myZiyadahs.length===0 ? (
-              <tr><td colSpan={5} className="text-center py-10 text-[#6b7a8d]">Belum ada rekap ziyadah</td></tr>
-            ) : myZiyadahs.map((z,i)=>{
-              const santri=users.find(u=>u.id===z.santriId);
-              return <tr key={z.id} className="border-b border-[#c5a059]/10 hover:bg-[#fdfbf7] transition-colors">
-                <td className="py-3 px-3 text-[#6b7a8d]">{i+1}</td>
-                <td className="py-3 px-3 font-medium text-[#1c2b3a]">{santri?.username??"-"}</td>
-                <td className="py-3 px-3"><Badge color="navy">Pekan {z.pekan}</Badge></td>
-                <td className="py-3 px-3 text-[#6b7a8d]">{z.tanggal}</td>
-                <td className="py-3 px-3"><div className="flex gap-1.5">
-                  <button onClick={()=>openEdit(z)} className="p-1.5 rounded-lg hover:bg-[#f0ebd8] text-[#113f59]"><Edit2 size={14}/></button>
-                  <button onClick={()=>del(z.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={14}/></button>
-                </div></td>
-              </tr>;
-            })}</tbody>
+            <thead>
+              <tr className="border-b border-[#c5a059]/20">
+                <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">No</th>
+                <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Nama Santri</th>
+                <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Pekan</th>
+                <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Tanggal</th>
+                <th className="text-left py-2.5 px-3 text-[#6b7a8d] font-medium">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              {/* Gunakan array hasil filter di sini */}
+              {filteredZiyadahs.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="text-center py-10 text-[#6b7a8d]">
+                    {searchQuery ? "Santri tidak ditemukan" : "Belum ada rekap ziyadah"}
+                  </td>
+                </tr>
+              ) : filteredZiyadahs.map((z, i) => {
+                const santri = users.find(u => u.id === z.santriId);
+                return (
+                  <tr key={z.id} className="border-b border-[#c5a059]/10 hover:bg-[#fdfbf7] transition-colors">
+                    <td className="py-3 px-3 text-[#6b7a8d]">{i + 1}</td>
+                    <td className="py-3 px-3 font-medium text-[#1c2b3a]">{santri?.username ?? "-"}</td>
+                    <td className="py-3 px-3"><Badge color="navy">Pekan {z.pekan}</Badge></td>
+                    <td className="py-3 px-3 text-[#6b7a8d]">{z.tanggal}</td>
+                    <td className="py-3 px-3">
+                      <div className="flex gap-1.5">
+                        <button onClick={() => openEdit(z)} className="p-1.5 rounded-lg hover:bg-[#f0ebd8] text-[#113f59]">
+                          <Edit2 size={14}/>
+                        </button>
+                        <button onClick={() => del(z.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500">
+                          <Trash2 size={14}/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
           </table>
         </div>
       </Card>

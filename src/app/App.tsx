@@ -102,6 +102,18 @@ const uid = () => Math.random().toString(36).slice(2,10);
 const fmt = (s:number) => `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 const pct = (done: Record<Day,boolean>) => { const vals=Object.values(done); return Math.round(vals.filter(Boolean).length/vals.length*100); };
 
+// Fungsi Konversi Predikat ke Angka (Untuk Chart)
+const taqdirToScore = (taqdir: string) => {
+  switch (taqdir) {
+    case "Mumtaz": return 100;
+    case "Jayyid Jiddan": return 85;
+    case "Jayyid": return 75;
+    case "Maqbul": return 65;
+    case "Dho'if": return 50;
+    default: return 0;
+  }
+};
+
 // ============================= UI PRIMITIVES =============================
 const cn = (...cls:(string|undefined|false)[]) => cls.filter(Boolean).join(" ");
 
@@ -569,17 +581,30 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
     .filter((z) => z.santriId === selectedSantriId)
     .sort((a, b) => a.pekan - b.pekan);
 
-  // Mapping data untuk format Chart (Bebas Error Compiler)
+  // Mapping data untuk format Chart (Menghitung rata-rata harian secara dinamis)
   const chartData = riwayatSantri.map((z) => {
-    const nilaiZiyadah = z.nilai ? z.nilai.ziyadah : 0;
-    const nilaiMurojaah = z.nilai ? z.nilai.murojaah : 0;
+    const dayValues = Object.values(z.days);
+    
+    // Filter hari yang benar-benar ada penilaian hafalan/ziyadahnya
+    const hafalanDays = dayValues.filter(d => d.taqdirHafalan && d.taqdirHafalan !== "");
+    // Hitung rata-ratanya
+    const avgHafalan = hafalanDays.length 
+      ? Math.round(hafalanDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirHafalan), 0) / hafalanDays.length)
+      : 0;
+
+    // Filter hari yang benar-benar ada penilaian murojaahnya
+    const murojaahDays = dayValues.filter(d => d.taqdirMurajaah && d.taqdirMurajaah !== "");
+    // Hitung rata-ratanya
+    const avgMurojaah = murojaahDays.length 
+      ? Math.round(murojaahDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirMurajaah), 0) / murojaahDays.length)
+      : 0;
 
     return {
       pekan: `Pekan ${z.pekan}`,
       tanggal: z.tanggal,
-      hafalan: nilaiZiyadah,
-      murojaah: nilaiMurojaah,
-      status: (nilaiZiyadah >= 80 && nilaiMurojaah >= 80) ? "Aman" : "Evaluasi"
+      hafalan: avgHafalan,      // Angka riil hasil kalkulasi otomatis
+      murojaah: avgMurojaah,    // Angka riil hasil kalkulasi otomatis
+      status: (avgHafalan >= 80 && avgMurojaah >= 80) ? "Aman" : "Evaluasi"
     };
   });
 

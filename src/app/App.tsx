@@ -5,6 +5,8 @@ import {
   Target, BarChart3, BookMarked, AlertCircle, CheckCircle2, Award,
   ChevronLeft, ChevronRight, UserCheck, Layers, Bell, Search
 } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./components/ui/chart";
 import { toast } from "sonner"; // Sesuaikan jika menggunakan library toast lain
 
 // ============================= TYPES =============================
@@ -32,6 +34,10 @@ interface ZiyadahDay { hafalan:string; taqdirHafalan:string; murajaah:string; ta
 interface ZiyadahRekap {
   id:string; santriId:string; pekan:number; tahun:number; tanggal:string;
   days: Record<Day,ZiyadahDay>; evaluasi:string; targetPekanan:string;
+  nilai?: {
+    ziyadah: number;
+    murojaah: number;
+  };
 }
 interface WeekTarget {
   id:string; santriId:string; pekan:number; tahun:number; tanggalMulai:string;
@@ -541,6 +547,164 @@ function AdminHalaqah({ state }: { state:AppState }) {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+// ============================= MUHAFFIDZ STATISTIK =============================
+function MuhaffidzStatistik({ state }: { state: AppState }) {
+  const { currentUser, users, halaqahs, ziyadahs } = state; 
+  
+  // Ambil daftar santri yang berada di bawah bimbingan Muhaffidz ini
+  const halaqah = halaqahs.find((h) => h.muhaffidzId === currentUser.id);
+  const santriList = users.filter((u) => halaqah?.santriIds.includes(u.id));
+
+  const [selectedSantriId, setSelectedSantriId] = useState(santriList[0]?.id ?? "");
+
+  // Filter rekap berdasarkan santri yang dipilih dan urutkan berdasarkan pekan
+  const riwayatSantri = ziyadahs
+    .filter((z) => z.santriId === selectedSantriId)
+    .sort((a, b) => a.pekan - b.pekan);
+
+  // Mapping data untuk format Chart (Bebas Error Compiler)
+  const chartData = riwayatSantri.map((z) => {
+    const nilaiZiyadah = z.nilai ? z.nilai.ziyadah : 0;
+    const nilaiMurojaah = z.nilai ? z.nilai.murojaah : 0;
+
+    return {
+      pekan: `Pekan ${z.pekan}`,
+      tanggal: z.tanggal,
+      hafalan: nilaiZiyadah,
+      murojaah: nilaiMurojaah,
+      status: (nilaiZiyadah >= 80 && nilaiMurojaah >= 80) ? "Aman" : "Evaluasi"
+    };
+  });
+
+  // Kalkulasi KPI (Rata-rata)
+  const avgHafalan = chartData.length 
+    ? (chartData.reduce((acc, curr) => acc + curr.hafalan, 0) / chartData.length).toFixed(1) 
+    : "0";
+  const avgMurojaah = chartData.length 
+    ? (chartData.reduce((acc, curr) => acc + curr.murojaah, 0) / chartData.length).toFixed(1) 
+    : "0";
+  
+  // Konfigurasi Chart Shadcn
+  const chartConfig = {
+    hafalan: { label: "Nilai Ziyadah", color: "#113f59" },
+    murojaah: { label: "Nilai Muroja'ah", color: "#c5a059" },
+  };
+
+  return (
+    <div className="space-y-6 max-w-5xl mx-auto pb-10 animate-in fade-in">
+      {/* HEADER & FILTER */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-[#c5a059]/20 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold font-playfair text-[#113f59]">Statistik & Perkembangan</h2>
+          <p className="text-sm text-gray-500">Pantau tren capaian target santri</p>
+        </div>
+        <div className="w-full md:w-64">
+          <Select
+            label=""
+            value={selectedSantriId}
+            onChange={setSelectedSantriId}
+            options={santriList.map((s) => ({ value: s.id, label: s.username }))}
+          />
+        </div>
+      </div>
+
+      {riwayatSantri.length === 0 ? (
+        <Card className="p-10 text-center text-gray-500 italic border-dashed">
+          Belum ada data rekap yang tersimpan untuk santri ini.
+        </Card>
+      ) : (
+        <>
+          {/* KPI CARDS */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="p-4 border-l-4 border-l-[#113f59]">
+              <p className="text-sm text-gray-500 font-medium">Rata-rata Ziyadah</p>
+              <div className="flex items-end gap-2 mt-1">
+                <h3 className="text-3xl font-bold text-[#113f59]">{avgHafalan}</h3>
+                <span className="text-sm mb-1 text-gray-400">/ 100</span>
+              </div>
+            </Card>
+            <Card className="p-4 border-l-4 border-l-[#c5a059]">
+              <p className="text-sm text-gray-500 font-medium">Rata-rata Muroja'ah</p>
+              <div className="flex items-end gap-2 mt-1">
+                <h3 className="text-3xl font-bold text-[#113f59]">{avgMurojaah}</h3>
+                <span className="text-sm mb-1 text-gray-400">/ 100</span>
+              </div>
+            </Card>
+            <Card className="p-4 border-l-4 border-l-green-600 bg-green-50/50">
+              <p className="text-sm text-gray-500 font-medium">Predikat Keseluruhan</p>
+              <div className="flex items-center gap-2 mt-1">
+                <Award className="text-green-600" size={28} />
+                <h3 className="text-xl font-bold text-green-700">
+                  {Number(avgHafalan) >= 90 ? "MUMTAZ" : Number(avgHafalan) >= 80 ? "JAYYID" : "MAQBUL"}
+                </h3>
+              </div>
+            </Card>
+          </div>
+
+          {/* CHART AREA */}
+          <Card className="p-5 border-[#c5a059]/30 shadow-sm">
+            <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-6">Grafik Tren Nilai</h3>
+            <ChartContainer config={chartConfig} className="h-[350px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData} margin={{ top: 20, right: 20, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                  <XAxis dataKey="pekan" tickLine={false} axisLine={false} tickMargin={10} className="text-xs text-gray-500" />
+                  <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tickMargin={10} className="text-xs text-gray-500" />
+                  
+                  {/* GARIS TARGET KKM */}
+                  <ReferenceLine 
+                    y={80} 
+                    stroke="#ef4444" 
+                    strokeDasharray="4 4" 
+                    label={{ position: "insideTopLeft", value: "Batas KKM (80)", fill: "#ef4444", fontSize: 12, fontWeight: "bold" }} 
+                  />
+                  
+                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Line type="monotone" dataKey="hafalan" name="Ziyadah" stroke={chartConfig.hafalan.color} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  <Line type="monotone" dataKey="murojaah" name="Muroja'ah" stroke={chartConfig.murojaah.color} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </Card>
+
+          {/* TABLE DETAIL */}
+          <Card className="overflow-hidden border-[#c5a059]/30 shadow-sm mt-4">
+            <div className="bg-[#113f59] text-white px-4 py-3 font-medium">Rekap Nilai Terakhir</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm text-left">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="py-3 px-4 font-medium text-gray-600">Pekan</th>
+                    <th className="py-3 px-4 font-medium text-gray-600">Tanggal</th>
+                    <th className="py-3 px-4 font-medium text-gray-600">Ziyadah</th>
+                    <th className="py-3 px-4 font-medium text-gray-600">Muroja'ah</th>
+                    <th className="py-3 px-4 font-medium text-gray-600">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {chartData.map((d, i) => (
+                    <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
+                      <td className="py-3 px-4 font-medium">{d.pekan}</td>
+                      <td className="py-3 px-4 text-gray-500">{d.tanggal}</td>
+                      <td className="py-3 px-4 font-bold text-[#113f59]">{d.hafalan}</td>
+                      <td className="py-3 px-4 font-bold text-[#c5a059]">{d.murojaah}</td>
+                      <td className="py-3 px-4">
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${d.status === 'Aman' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {d.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

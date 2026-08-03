@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import {
-  BookOpen, Users, LogOut, Plus, Edit2, Trash2, Check, X, Clock,
-  Eye, EyeOff, Menu, ChevronDown, Minus, Shield, GraduationCap,
-  Target, BarChart3, BookMarked, AlertCircle, CheckCircle2, Award,
-  ChevronLeft, ChevronRight, UserCheck, Layers, Bell, Search
+  BookOpen, Users, LogOut, Plus, Edit2, Trash2, Check, X,
+  Eye, EyeOff, Menu, AlertCircle, CheckCircle2, Award,
+  ChevronLeft, UserCheck, Layers, Search, Target, BookMarked, BarChart3
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./components/ui/chart";
@@ -14,7 +13,7 @@ type Role = "admin" | "muhaffidz" | "santri";
 type Page =
   | "login" | "register"
   | "admin-users" | "admin-halaqah"
-  | "muhaffidz-ziyadah" | "muhaffidz-target" | "muhaffidz-ujian"
+  | "muhaffidz-ziyadah" | "muhaffidz-target" | "muhaffidz-statistik" | "muhaffidz-ujian"
   | "santri-ziyadah" | "santri-target" | "santri-ujian";
 
 interface User {
@@ -53,7 +52,6 @@ interface Ujian {
 
 // ============================= INITIAL DATA =============================
 const emptyDay = (): ZiyadahDay => ({ hafalan:"",taqdirHafalan:"Jayyid",murajaah:"",taqdirMurajaah:"Jayyid",catatan:"" });
-const emptyKT = (): KertasTasmi => ({ mustami:"",status:"",taqdir:"",khoto:0,tanbih:0,catatan:"" });
 
 const INIT_USERS: User[] = [
   { id:"u1",username:"Admin Utama",email:"admin@tahfidz.id",password:"admin123",role:"admin" },
@@ -86,10 +84,14 @@ const makeDayRekap = (h:string,tH:string,m:string,tM:string,c:string): ZiyadahDa
 const INIT_ZIYADAH: ZiyadahRekap[] = [
   { id:"z1",santriId:"u4",pekan:1,tahun:2025,tanggal:"2025-01-06",
     days:{ senin:makeDayRekap("Al-Baqarah 1-5","Mumtaz","Al-Fatihah","Mumtaz","Lancar"),selasa:makeDayRekap("Al-Baqarah 6-10","Jayyid Jiddan","Al-Baqarah 1-5","Jayyid Jiddan","Baik"),rabu:makeDayRekap("Al-Baqarah 11-16","Jayyid","Al-Baqarah 6-10","Jayyid","Perlu ditingkatkan"),kamis:makeDayRekap("Al-Baqarah 17-20","Mumtaz","Al-Baqarah 11-16","Mumtaz","Sangat bagus"),jumat:makeDayRekap("-","Jayyid","Murajaah 1-20","Jayyid Jiddan","Konsisten"),sabtu:makeDayRekap("Al-Baqarah 21-25","Jayyid Jiddan","Al-Baqarah 1-20","Jayyid","Stabil"),ahad:makeDayRekap("Al-Baqarah 26-30","Mumtaz","Al-Baqarah 21-30","Mumtaz","Sempurna") },
-    evaluasi:"Pekan pertama berjalan dengan baik. Farhan menunjukkan semangat tinggi dalam menghafal.",targetPekanan:"Menyelesaikan Juz 1 ayat 1-30" },
+    evaluasi:"Pekan pertama berjalan dengan baik. Farhan menunjukkan semangat tinggi dalam menghafal.",targetPekanan:"Menyelesaikan Juz 1 ayat 1-30",
+    nilai: { ziyadah: 85, murojaah: 80 }
+  },
   { id:"z2",santriId:"u4",pekan:2,tahun:2025,tanggal:"2025-01-13",
     days:{ senin:makeDayRekap("Al-Baqarah 31-36","Jayyid Jiddan","Al-Baqarah 26-30","Jayyid Jiddan","Bagus"),selasa:makeDayRekap("Al-Baqarah 37-42","Jayyid","Al-Baqarah 31-36","Jayyid","Stabil"),rabu:makeDayRekap("Al-Baqarah 43-48","Mumtaz","Al-Baqarah 37-42","Mumtaz","Luar biasa"),kamis:makeDayRekap("Al-Baqarah 49-54","Jayyid","Al-Baqarah 43-48","Jayyid","Cukup"),jumat:makeDayRekap("-","","Murajaah 31-54","Jayyid Jiddan","Murajaah berjalan lancar"),sabtu:makeDayRekap("Al-Baqarah 55-60","Jayyid Jiddan","Al-Baqarah 49-54","Jayyid Jiddan","Konsisten"),ahad:makeDayRekap("Al-Baqarah 61-65","Jayyid","Al-Baqarah 55-60","Jayyid","Perlu perbaikan tajwid") },
-    evaluasi:"Pekan kedua baik namun ada penurunan di akhir pekan. Perlu motivasi tambahan.",targetPekanan:"Menyelesaikan Al-Baqarah 31-65" },
+    evaluasi:"Pekan kedua baik namun ada penurunan di akhir pekan. Perlu motivasi tambahan.",targetPekanan:"Menyelesaikan Al-Baqarah 31-65",
+    nilai: { ziyadah: 88, murojaah: 85 }
+  },
 ];
 const INIT_UJIAN: Ujian[] = [
   { id:"uj1",santriId:"u5",muhaffidzId:"u2",juz:1,status:"active",startTime:Date.now()-1800000,kertasTasmi:[] },
@@ -206,6 +208,7 @@ const navByRole: Record<Role,{label:string;page:Page;icon:React.ReactNode}[]> = 
   muhaffidz: [
     { label:"Rekap Ziyadah", page:"muhaffidz-ziyadah", icon:<BookMarked size={18}/> },
     { label:"Target Murajaah", page:"muhaffidz-target", icon:<Target size={18}/> },
+    { label:"Statistik Santri", page:"muhaffidz-statistik", icon:<BarChart3 size={18}/> },
     { label:"Ujian Kenaikan Juz", page:"muhaffidz-ujian", icon:<Award size={18}/> },
   ],
   santri: [
@@ -1488,7 +1491,7 @@ function SantriUjian({ state }: { state: AppState }) {
             </tr>
           </thead>
           <tbody>
-            {activeUjian.kertasTasmi.map((row: any, i: number) => (
+            {activeUjian.kertasTasmi.map((row: KertasTasmi, i: number) => (
               <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
                 {/* Nomor Urut */}
                 <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
@@ -1621,6 +1624,7 @@ export default function App() {
       case "admin-halaqah":   return <AdminHalaqah state={state}/>;
       case "muhaffidz-ziyadah": return <MuhaffidzZiyadah state={state}/>;
       case "muhaffidz-target":  return <MuhaffidzTarget state={state}/>;
+      case "muhaffidz-statistik": return <MuhaffidzStatistik state={state}/>;
       case "muhaffidz-ujian":   return <MuhaffidzUjian state={state}/>;
       case "santri-ziyadah":  return <SantriZiyadah state={state}/>;
       case "santri-target":   return <SantriTarget state={state}/>;

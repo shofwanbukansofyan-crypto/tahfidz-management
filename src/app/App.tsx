@@ -9,7 +9,7 @@ import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./components/
 import { toast } from "sonner";
 
 // ============================= API HELPER =============================
-const API_URL = "http://localhost:5000/api";
+const API_URL = "http://tahfidz-management-production.up.railway.app/api";
 
 const api = {
   get: async (path: string) => fetch(`${API_URL}${path}`).then(res => res.json()),

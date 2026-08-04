@@ -1,0 +1,59 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String
+  email     String   @unique
+  password  String
+  role      String
+  halaqahId String?
+}
+
+model Halaqah {
+  id          String   @id @default(uuid())
+  name        String
+  location    String
+  muhaffidzId String
+  santriIds   String[] 
+}
+
+model ZiyadahRekap {
+  id            String   @id @default(uuid())
+  santriId      String
+  pekan         Int
+  tahun         Int
+  tanggal       String
+  days          Json     
+  evaluasi      String
+  targetPekanan String
+  nilai         Json?    // Menyimpan { ziyadah: 80, murojaah: 85 }
+}
+
+model WeekTarget {
+  id           String   @id @default(uuid())
+  santriId     String
+  pekan        Int
+  tahun        Int
+  tanggalMulai String
+  targets      Json
+  done         Json
+  isActiveWeek Boolean  @default(false)
+}
+
+model Ujian {
+  id          String   @id @default(uuid())
+  santriId    String
+  muhaffidzId String
+  juz         Int
+  status      String
+  startTime   Float    // Float digunakan untuk menampung timestamp Date.now() JS
+  kertasTasmi Json
+  nilai       Json?    // Menyimpan { hifdz: 80, tajwid: 80, tartil: 80, rata: 80 }
+}

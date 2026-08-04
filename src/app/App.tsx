@@ -2,11 +2,25 @@ import { useState, useEffect } from "react";
 import {
   BookOpen, Users, LogOut, Plus, Edit2, Trash2, Check, X,
   Eye, EyeOff, Menu, AlertCircle, CheckCircle2, Award,
-  ChevronLeft, UserCheck, Layers, Search, Target, BookMarked, BarChart3
+  ChevronLeft, UserCheck, Layers, Search, Target, BookMarked, BarChart3, Loader2
 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, ReferenceLine } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "./components/ui/chart";
-import { toast } from "sonner"; // Sesuaikan jika menggunakan library toast lain
+import { toast } from "sonner";
+
+// ============================= API HELPER =============================
+const API_URL = "http://localhost:5000/api";
+
+const api = {
+  get: async (path: string) => fetch(`${API_URL}${path}`).then(res => res.json()),
+  post: async (path: string, data: any) => fetch(`${API_URL}${path}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+  }).then(res => res.json()),
+  put: async (path: string, data: any) => fetch(`${API_URL}${path}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data)
+  }).then(res => res.json()),
+  del: async (path: string) => fetch(`${API_URL}${path}`, { method: "DELETE" }).then(res => res.json())
+};
 
 // ============================= TYPES =============================
 type Role = "admin" | "muhaffidz" | "santri";
@@ -16,13 +30,9 @@ type Page =
   | "muhaffidz-ziyadah" | "muhaffidz-target" | "muhaffidz-statistik" | "muhaffidz-ujian"
   | "santri-ziyadah" | "santri-target" | "santri-ujian";
 
-interface User {
-  id: string; username: string; email: string; password: string;
-  role: Role; halaqahId?: string;
-}
-interface Halaqah {
-  id: string; name: string; location: string; muhaffidzId: string; santriIds: string[];
-}
+interface User { id: string; username: string; email: string; password: string; role: Role; halaqahId?: string; }
+interface Halaqah { id: string; name: string; location: string; muhaffidzId: string; santriIds: string[]; }
+
 type Day = "senin" | "selasa" | "rabu" | "kamis" | "jumat" | "sabtu" | "ahad";
 const DAYS: Day[] = ["senin","selasa","rabu","kamis","jumat","sabtu","ahad"];
 const DAY_AR: Record<Day,string> = { senin:"الاثنين",selasa:"الثلاثاء",rabu:"الأربعاء",kamis:"الخميس",jumat:"الجمعة",sabtu:"السبت",ahad:"الأحد" };
@@ -33,15 +43,14 @@ interface ZiyadahDay { hafalan:string; taqdirHafalan:string; murajaah:string; ta
 interface ZiyadahRekap {
   id:string; santriId:string; pekan:number; tahun:number; tanggal:string;
   days: Record<Day,ZiyadahDay>; evaluasi:string; targetPekanan:string;
-  nilai?: {
-    ziyadah: number;
-    murojaah: number;
-  };
+  nilai?: { ziyadah: number; murojaah: number; };
 }
+
 interface WeekTarget {
   id:string; santriId:string; pekan:number; tahun:number; tanggalMulai:string;
   targets: Record<Day,string>; done: Record<Day,boolean>; isActiveWeek:boolean;
 }
+
 interface KertasTasmi { mustami:string; status:"maqbul"|"mardud"|""; taqdir:string; khoto:number; tanbih:number; catatan:string; }
 interface UjianNilai { hifdz:number; tajwid:number; tartil:number; rata?:number;  }
 interface Ujian {
@@ -50,59 +59,14 @@ interface Ujian {
   kertasTasmi:KertasTasmi[]; nilai?:UjianNilai;
 }
 
-// ============================= INITIAL DATA =============================
-const emptyDay = (): ZiyadahDay => ({ hafalan:"",taqdirHafalan:"Jayyid",murajaah:"",taqdirMurajaah:"Jayyid",catatan:"" });
-
-const INIT_USERS: User[] = [
-  { id:"u1",username:"Admin Utama",email:"admin@tahfidz.id",password:"admin123",role:"admin" },
-  { id:"u2",username:"Ust. Ahmad Fauzi",email:"ahmad@tahfidz.id",password:"pass123",role:"muhaffidz",halaqahId:"h1" },
-  { id:"u3",username:"Ust. Ibrahim Malik",email:"ibrahim@tahfidz.id",password:"pass123",role:"muhaffidz",halaqahId:"h2" },
-  { id:"u4",username:"Muhammad Farhan",email:"farhan@santri.id",password:"pass123",role:"santri",halaqahId:"h1" },
-  { id:"u5",username:"Abdullah Rizki",email:"rizki@santri.id",password:"pass123",role:"santri",halaqahId:"h1" },
-  { id:"u6",username:"Yusuf Hakim",email:"yusuf@santri.id",password:"pass123",role:"santri",halaqahId:"h1" },
-  { id:"u7",username:"Hafiz Zain",email:"zain@santri.id",password:"pass123",role:"santri",halaqahId:"h2" },
-];
-const INIT_HALAQAH: Halaqah[] = [
-  { id:"h1",name:"Halaqah Al-Fatih",location:"Masjid Al-Ikhlas",muhaffidzId:"u2",santriIds:["u4","u5","u6"] },
-  { id:"h2",name:"Halaqah An-Nahl",location:"Masjid Ar-Rahman",muhaffidzId:"u3",santriIds:["u7"] },
-];
-const makeEmptyDays = () => DAYS.reduce((a,d)=>({...a,[d]:""}),{}) as Record<Day,string>;
-const makeEmptyDone = () => DAYS.reduce((a,d)=>({...a,[d]:false}),{}) as Record<Day,boolean>;
-
-const INIT_TARGETS: WeekTarget[] = [
-  { id:"t1",santriId:"u4",pekan:1,tahun:2025,tanggalMulai:"2025-01-06",
-    targets:{senin:"Al-Baqarah 1-5",selasa:"Al-Baqarah 6-10",rabu:"Al-Baqarah 11-16",kamis:"Al-Baqarah 17-20",jumat:"Murajaah",sabtu:"Al-Baqarah 21-25",ahad:"Al-Baqarah 26-30"},
-    done:{senin:true,selasa:true,rabu:true,kamis:true,jumat:true,sabtu:true,ahad:true},isActiveWeek:false },
-  { id:"t2",santriId:"u4",pekan:2,tahun:2025,tanggalMulai:"2025-01-13",
-    targets:{senin:"Al-Baqarah 31-36",selasa:"Al-Baqarah 37-42",rabu:"Al-Baqarah 43-48",kamis:"Al-Baqarah 49-54",jumat:"Murajaah",sabtu:"Al-Baqarah 55-60",ahad:"Al-Baqarah 61-65"},
-    done:{senin:true,selasa:true,rabu:false,kamis:false,jumat:false,sabtu:false,ahad:false},isActiveWeek:false },
-  { id:"t3",santriId:"u4",pekan:3,tahun:2025,tanggalMulai:"2025-01-20",
-    targets:{senin:"Al-Baqarah 66-72",selasa:"Al-Baqarah 73-78",rabu:"Al-Baqarah 79-84",kamis:"Al-Baqarah 85-90",jumat:"Murajaah Juz 1",sabtu:"Al-Baqarah 91-95",ahad:"Al-Baqarah 96-100"},
-    done:{senin:false,selasa:false,rabu:false,kamis:false,jumat:false,sabtu:false,ahad:false},isActiveWeek:true },
-];
-const makeDayRekap = (h:string,tH:string,m:string,tM:string,c:string): ZiyadahDay => ({ hafalan:h,taqdirHafalan:tH,murajaah:m,taqdirMurajaah:tM,catatan:c });
-const INIT_ZIYADAH: ZiyadahRekap[] = [
-  { id:"z1",santriId:"u4",pekan:1,tahun:2025,tanggal:"2025-01-06",
-    days:{ senin:makeDayRekap("Al-Baqarah 1-5","Mumtaz","Al-Fatihah","Mumtaz","Lancar"),selasa:makeDayRekap("Al-Baqarah 6-10","Jayyid Jiddan","Al-Baqarah 1-5","Jayyid Jiddan","Baik"),rabu:makeDayRekap("Al-Baqarah 11-16","Jayyid","Al-Baqarah 6-10","Jayyid","Perlu ditingkatkan"),kamis:makeDayRekap("Al-Baqarah 17-20","Mumtaz","Al-Baqarah 11-16","Mumtaz","Sangat bagus"),jumat:makeDayRekap("-","Jayyid","Murajaah 1-20","Jayyid Jiddan","Konsisten"),sabtu:makeDayRekap("Al-Baqarah 21-25","Jayyid Jiddan","Al-Baqarah 1-20","Jayyid","Stabil"),ahad:makeDayRekap("Al-Baqarah 26-30","Mumtaz","Al-Baqarah 21-30","Mumtaz","Sempurna") },
-    evaluasi:"Pekan pertama berjalan dengan baik. Farhan menunjukkan semangat tinggi dalam menghafal.",targetPekanan:"Menyelesaikan Juz 1 ayat 1-30",
-    nilai: { ziyadah: 85, murojaah: 80 }
-  },
-  { id:"z2",santriId:"u4",pekan:2,tahun:2025,tanggal:"2025-01-13",
-    days:{ senin:makeDayRekap("Al-Baqarah 31-36","Jayyid Jiddan","Al-Baqarah 26-30","Jayyid Jiddan","Bagus"),selasa:makeDayRekap("Al-Baqarah 37-42","Jayyid","Al-Baqarah 31-36","Jayyid","Stabil"),rabu:makeDayRekap("Al-Baqarah 43-48","Mumtaz","Al-Baqarah 37-42","Mumtaz","Luar biasa"),kamis:makeDayRekap("Al-Baqarah 49-54","Jayyid","Al-Baqarah 43-48","Jayyid","Cukup"),jumat:makeDayRekap("-","","Murajaah 31-54","Jayyid Jiddan","Murajaah berjalan lancar"),sabtu:makeDayRekap("Al-Baqarah 55-60","Jayyid Jiddan","Al-Baqarah 49-54","Jayyid Jiddan","Konsisten"),ahad:makeDayRekap("Al-Baqarah 61-65","Jayyid","Al-Baqarah 55-60","Jayyid","Perlu perbaikan tajwid") },
-    evaluasi:"Pekan kedua baik namun ada penurunan di akhir pekan. Perlu motivasi tambahan.",targetPekanan:"Menyelesaikan Al-Baqarah 31-65",
-    nilai: { ziyadah: 88, murojaah: 85 }
-  },
-];
-const INIT_UJIAN: Ujian[] = [
-  { id:"uj1",santriId:"u5",muhaffidzId:"u2",juz:1,status:"active",startTime:Date.now()-1800000,kertasTasmi:[] },
-];
-
 // ============================= HELPERS =============================
 const uid = () => Math.random().toString(36).slice(2,10);
 const fmt = (s:number) => `${String(Math.floor(s/3600)).padStart(2,"0")}:${String(Math.floor((s%3600)/60)).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
 const pct = (done: Record<Day,boolean>) => { const vals=Object.values(done); return Math.round(vals.filter(Boolean).length/vals.length*100); };
+const emptyDay = (): ZiyadahDay => ({ hafalan:"",taqdirHafalan:"Jayyid",murajaah:"",taqdirMurajaah:"Jayyid",catatan:"" });
+const makeEmptyDays = () => DAYS.reduce((a,d)=>({...a,[d]:""}),{}) as Record<Day,string>;
+const makeEmptyDone = () => DAYS.reduce((a,d)=>({...a,[d]:false}),{}) as Record<Day,boolean>;
 
-// Fungsi Konversi Predikat ke Angka (Untuk Chart)
 const taqdirToScore = (taqdir: string) => {
   switch (taqdir) {
     case "Mumtaz": return 100;
@@ -152,12 +116,12 @@ const CardHeader = ({ title, subtitle, action }: { title:string; subtitle?:strin
   </div>
 );
 
-const Input = ({ label,value,onChange,type="text",placeholder="",required=false,readOnly=false }: {
-  label?:string; value:string; onChange:(v:string)=>void; type?:string; placeholder?:string; required?:boolean; readOnly?:boolean;
+const Input = ({ label,value,onChange,type="text",placeholder="",required=false,readOnly=false,min }: {
+  label?:string; value:string; onChange:(v:string)=>void; type?:string; placeholder?:string; required?:boolean; readOnly?:boolean; min?:number;
 }) => (
   <div className="flex flex-col gap-1">
     {label && <label className="text-sm font-medium text-[#1c2b3a]">{label}</label>}
-    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} required={required} readOnly={readOnly}
+    <input type={type} value={value} onChange={e=>onChange(e.target.value)} placeholder={placeholder} required={required} readOnly={readOnly} min={min}
       className="px-3 py-2 rounded-lg border border-[#c5a059]/30 bg-[#f8f5ef] text-[#1c2b3a] text-sm placeholder:text-[#6b7a8d] focus:outline-none focus:ring-2 focus:ring-[#c5a059]/40 focus:border-[#c5a059] transition-all read-only:bg-[#f0ebd8] read-only:cursor-default" />
   </div>
 );
@@ -327,16 +291,15 @@ function Layout({ state, children }: { state:AppState; children:React.ReactNode 
 }
 
 // ============================= AUTH =============================
-function LoginPage({ onLogin, onGoRegister }: { onLogin:(u:User)=>void; onGoRegister:()=>void }) {
+function LoginPage({ onLogin, onGoRegister, users }: { onLogin:(u:User)=>void; onGoRegister:()=>void; users: User[] }) {
   const [email,setEmail] = useState("");
   const [password,setPassword] = useState("");
   const [show,setShow] = useState(false);
   const [error,setError] = useState("");
-  const [users] = useState<User[]>(INIT_USERS);
 
   const submit = (e:React.FormEvent) => {
     e.preventDefault();
-    const u = users.find(x=>x.email===email&&x.password===password);
+    const u = users.find(x=>x.email===email && x.password===password);
     if (u) { onLogin(u); setError(""); }
     else setError("Email atau password salah.");
   };
@@ -378,29 +341,29 @@ function LoginPage({ onLogin, onGoRegister }: { onLogin:(u:User)=>void; onGoRegi
   );
 }
 
-function RegisterPage({ onBack }: { onBack:()=>void }) {
+function RegisterPage({ onBack, onRegisterSuccess }: { onBack:()=>void, onRegisterSuccess:()=>void }) {
   const [form,setForm] = useState({ username:"",email:"",password:"",confirm:"" });
   const [error,setError] = useState("");
-  const [success,setSuccess] = useState(false);
+  const [loading,setLoading] = useState(false);
   const set = (k:string)=>(v:string)=>setForm(f=>({...f,[k]:v}));
 
-  const submit = (e:React.FormEvent) => {
+  const submit = async (e:React.FormEvent) => {
     e.preventDefault();
     if (form.password!==form.confirm) { setError("Password tidak cocok."); return; }
     if (form.password.length<6) { setError("Password minimal 6 karakter."); return; }
-    setSuccess(true);
+    
+    try {
+      setLoading(true);
+      await api.post("/users", {
+        id: uid(), username: form.username, email: form.email, password: form.password, role: "santri"
+      });
+      onRegisterSuccess();
+    } catch (err) {
+      setError("Gagal melakukan pendaftaran. Silakan coba lagi.");
+    } finally {
+      setLoading(false);
+    }
   };
-
-  if (success) return (
-    <div className="min-h-screen flex items-center justify-center p-4" style={{ background:"#fdfbf7" }}>
-      <Card className="p-8 text-center max-w-sm">
-        <CheckCircle2 size={48} className="text-green-500 mx-auto mb-4" />
-        <h2 className="font-playfair text-[#113f59] font-bold text-xl mb-2">Pendaftaran Berhasil!</h2>
-        <p className="text-[#6b7a8d] text-sm mb-4">Akun Anda telah didaftarkan. Mohon hubungi Admin untuk aktivasi dan penentuan role.</p>
-        <Btn onClick={onBack} variant="primary" className="w-full justify-center">Kembali ke Login</Btn>
-      </Card>
-    </div>
-  );
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4" style={{ background:"#fdfbf7", backgroundImage:"linear-gradient(45deg,#f0ebd8 25%,transparent 25%),linear-gradient(-45deg,#f0ebd8 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#f0ebd8 75%),linear-gradient(-45deg,transparent 75%,#f0ebd8 75%)", backgroundSize:"24px 24px", backgroundPosition:"0 0,0 12px,12px -12px,-12px 0" }}>
@@ -416,7 +379,9 @@ function RegisterPage({ onBack }: { onBack:()=>void }) {
             <Input label="Password" type="password" value={form.password} onChange={set("password")} placeholder="Min. 6 karakter" required />
             <Input label="Konfirmasi Password" type="password" value={form.confirm} onChange={set("confirm")} placeholder="Ulangi password" required />
             {error && <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg px-3 py-2"><AlertCircle size={14}/>{error}</div>}
-            <Btn type="submit" variant="primary" className="w-full justify-center py-2.5">Daftar</Btn>
+            <Btn type="submit" variant="primary" className="w-full justify-center py-2.5" disabled={loading}>
+              {loading ? <Loader2 size={18} className="animate-spin" /> : "Daftar"}
+            </Btn>
           </form>
           <Divider />
           <button onClick={onBack} className="w-full text-center text-sm text-[#6b7a8d] hover:text-[#113f59] flex items-center justify-center gap-1.5">
@@ -438,12 +403,36 @@ function AdminUsers({ state }: { state:AppState }) {
 
   const openAdd = () => { setForm({ username:"",email:"",password:"",role:"santri",halaqahId:"" }); setModal({type:"add"}); };
   const openEdit = (u:User) => { setForm({ username:u.username,email:u.email,password:u.password,role:u.role,halaqahId:u.halaqahId??"" }); setModal({type:"edit",user:u}); };
-  const save = () => {
-    if (modal?.type==="add") setUsers([...users,{ id:uid(),...form }]);
-    else if (modal?.user) setUsers(users.map(u=>u.id===modal.user!.id?{...u,...form}:u));
-    setModal(null);
+  
+  const save = async () => {
+    try {
+      if (modal?.type==="add") {
+        const newUser = await api.post("/users", { id: uid(), ...form });
+        setUsers([...users, newUser]);
+        toast.success("Pengguna berhasil ditambahkan");
+      } else if (modal?.user) {
+        const updatedUser = await api.put(`/users/${modal.user.id}`, form);
+        setUsers(users.map(u => u.id === updatedUser.id ? updatedUser : u));
+        toast.success("Pengguna berhasil diperbarui");
+      }
+      setModal(null);
+    } catch (e) {
+      toast.error("Gagal menyimpan pengguna.");
+    }
   };
-  const del = (id:string) => { if (confirm("Hapus pengguna ini?")) setUsers(users.filter(u=>u.id!==id)); };
+
+  const del = async (id:string) => {
+    if (confirm("Hapus pengguna ini?")) {
+      try {
+        await api.del(`/users/${id}`);
+        setUsers(users.filter(u=>u.id!==id));
+        toast.success("Pengguna dihapus");
+      } catch (e) {
+        toast.error("Gagal menghapus pengguna.");
+      }
+    }
+  };
+
   const filtered = users.filter(u=>u.username.toLowerCase().includes(search.toLowerCase())||u.email.toLowerCase().includes(search.toLowerCase()));
 
   return (
@@ -509,18 +498,52 @@ function AdminHalaqah({ state }: { state:AppState }) {
 
   const openAdd = () => { setForm({name:"",location:"",muhaffidzId:""}); setModal({type:"add"}); };
   const openEdit = (h:Halaqah) => { setForm({name:h.name,location:h.location,muhaffidzId:h.muhaffidzId}); setModal({type:"edit",h}); };
-  const save = () => {
-    if (modal?.type==="add") {
-      const id=uid();
-      setHalaqahs([...halaqahs,{id,...form,santriIds:[]}]);
-      setUsers(users.map(u=>u.id===form.muhaffidzId?{...u,halaqahId:id}:u));
-    } else if (modal?.h) {
-      setHalaqahs(halaqahs.map(h=>h.id===modal.h!.id?{...h,...form}:h));
-      setUsers(users.map(u=>u.id===form.muhaffidzId?{...u,halaqahId:modal.h!.id}:u));
+  
+  const save = async () => {
+    try {
+      if (modal?.type==="add") {
+        const id = uid();
+        const newHalaqah = await api.post("/halaqahs", { id, ...form, santriIds: [] });
+        setHalaqahs([...halaqahs, newHalaqah]);
+        
+        if (form.muhaffidzId) {
+          const u = users.find(x=>x.id===form.muhaffidzId);
+          if (u) {
+            const updatedUser = await api.put(`/users/${u.id}`, { ...u, halaqahId: id });
+            setUsers(users.map(x=>x.id===updatedUser.id ? updatedUser : x));
+          }
+        }
+        toast.success("Halaqah berhasil dibuat");
+      } else if (modal?.h) {
+        const updatedHalaqah = await api.put(`/halaqahs/${modal.h.id}`, { ...modal.h, ...form });
+        setHalaqahs(halaqahs.map(h => h.id === updatedHalaqah.id ? updatedHalaqah : h));
+        
+        if (form.muhaffidzId) {
+          const u = users.find(x=>x.id===form.muhaffidzId);
+          if (u) {
+            const updatedUser = await api.put(`/users/${u.id}`, { ...u, halaqahId: modal.h.id });
+            setUsers(users.map(x=>x.id===updatedUser.id ? updatedUser : x));
+          }
+        }
+        toast.success("Halaqah berhasil diperbarui");
+      }
+      setModal(null);
+    } catch (e) {
+      toast.error("Gagal menyimpan halaqah.");
     }
-    setModal(null);
   };
-  const del = (id:string) => { if (confirm("Hapus halaqah ini?")) setHalaqahs(halaqahs.filter(h=>h.id!==id)); };
+
+  const del = async (id:string) => {
+    if (confirm("Hapus halaqah ini?")) {
+      try {
+        await api.del(`/halaqahs/${id}`);
+        setHalaqahs(halaqahs.filter(h=>h.id!==id));
+        toast.success("Halaqah dihapus");
+      } catch (e) {
+        toast.error("Gagal menghapus halaqah.");
+      }
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -570,53 +593,37 @@ function AdminHalaqah({ state }: { state:AppState }) {
 function MuhaffidzStatistik({ state }: { state: AppState }) {
   const { currentUser, users, halaqahs, ziyadahs } = state; 
   
-  // Ambil daftar santri yang berada di bawah bimbingan Muhaffidz ini
   const halaqah = halaqahs.find((h) => h.muhaffidzId === currentUser.id);
   const santriList = users.filter((u) => halaqah?.santriIds.includes(u.id));
 
   const [selectedSantriId, setSelectedSantriId] = useState(santriList[0]?.id ?? "");
 
-  // Filter rekap berdasarkan santri yang dipilih dan urutkan berdasarkan pekan
   const riwayatSantri = ziyadahs
     .filter((z) => z.santriId === selectedSantriId)
     .sort((a, b) => a.pekan - b.pekan);
 
-  // Mapping data untuk format Chart (Menghitung rata-rata harian secara dinamis)
   const chartData = riwayatSantri.map((z) => {
     const dayValues = Object.values(z.days);
-    
-    // Filter hari yang benar-benar ada penilaian hafalan/ziyadahnya
     const hafalanDays = dayValues.filter(d => d.taqdirHafalan && d.taqdirHafalan !== "");
-    // Hitung rata-ratanya
     const avgHafalan = hafalanDays.length 
-      ? Math.round(hafalanDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirHafalan), 0) / hafalanDays.length)
-      : 0;
+      ? Math.round(hafalanDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirHafalan), 0) / hafalanDays.length) : 0;
 
-    // Filter hari yang benar-benar ada penilaian murojaahnya
     const murojaahDays = dayValues.filter(d => d.taqdirMurajaah && d.taqdirMurajaah !== "");
-    // Hitung rata-ratanya
     const avgMurojaah = murojaahDays.length 
-      ? Math.round(murojaahDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirMurajaah), 0) / murojaahDays.length)
-      : 0;
+      ? Math.round(murojaahDays.reduce((acc, d) => acc + taqdirToScore(d.taqdirMurajaah), 0) / murojaahDays.length) : 0;
 
     return {
       pekan: `Pekan ${z.pekan}`,
       tanggal: z.tanggal,
-      hafalan: avgHafalan,      // Angka riil hasil kalkulasi otomatis
-      murojaah: avgMurojaah,    // Angka riil hasil kalkulasi otomatis
+      hafalan: avgHafalan,
+      murojaah: avgMurojaah,
       status: (avgHafalan >= 80 && avgMurojaah >= 80) ? "Aman" : "Evaluasi"
     };
   });
 
-  // Kalkulasi KPI (Rata-rata)
-  const avgHafalan = chartData.length 
-    ? (chartData.reduce((acc, curr) => acc + curr.hafalan, 0) / chartData.length).toFixed(1) 
-    : "0";
-  const avgMurojaah = chartData.length 
-    ? (chartData.reduce((acc, curr) => acc + curr.murojaah, 0) / chartData.length).toFixed(1) 
-    : "0";
+  const avgHafalan = chartData.length ? (chartData.reduce((acc, curr) => acc + curr.hafalan, 0) / chartData.length).toFixed(1) : "0";
+  const avgMurojaah = chartData.length ? (chartData.reduce((acc, curr) => acc + curr.murojaah, 0) / chartData.length).toFixed(1) : "0";
   
-  // Konfigurasi Chart Shadcn
   const chartConfig = {
     hafalan: { label: "Nilai Ziyadah", color: "#113f59" },
     murojaah: { label: "Nilai Muroja'ah", color: "#c5a059" },
@@ -624,19 +631,13 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10 animate-in fade-in">
-      {/* HEADER & FILTER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-xl border border-[#c5a059]/20 shadow-sm">
         <div>
           <h2 className="text-xl font-bold font-playfair text-[#113f59]">Statistik & Perkembangan</h2>
           <p className="text-sm text-gray-500">Pantau tren capaian target santri</p>
         </div>
         <div className="w-full md:w-64">
-          <Select
-            label=""
-            value={selectedSantriId}
-            onChange={setSelectedSantriId}
-            options={santriList.map((s) => ({ value: s.id, label: s.username }))}
-          />
+          <Select label="" value={selectedSantriId} onChange={setSelectedSantriId} options={santriList.map((s) => ({ value: s.id, label: s.username }))} />
         </div>
       </div>
 
@@ -646,34 +647,28 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
         </Card>
       ) : (
         <>
-          {/* KPI CARDS */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card className="p-4 border-l-4 border-l-[#113f59]">
               <p className="text-sm text-gray-500 font-medium">Rata-rata Ziyadah</p>
               <div className="flex items-end gap-2 mt-1">
-                <h3 className="text-3xl font-bold text-[#113f59]">{avgHafalan}</h3>
-                <span className="text-sm mb-1 text-gray-400">/ 100</span>
+                <h3 className="text-3xl font-bold text-[#113f59]">{avgHafalan}</h3><span className="text-sm mb-1 text-gray-400">/ 100</span>
               </div>
             </Card>
             <Card className="p-4 border-l-4 border-l-[#c5a059]">
               <p className="text-sm text-gray-500 font-medium">Rata-rata Muroja'ah</p>
               <div className="flex items-end gap-2 mt-1">
-                <h3 className="text-3xl font-bold text-[#113f59]">{avgMurojaah}</h3>
-                <span className="text-sm mb-1 text-gray-400">/ 100</span>
+                <h3 className="text-3xl font-bold text-[#113f59]">{avgMurojaah}</h3><span className="text-sm mb-1 text-gray-400">/ 100</span>
               </div>
             </Card>
             <Card className="p-4 border-l-4 border-l-green-600 bg-green-50/50">
               <p className="text-sm text-gray-500 font-medium">Predikat Keseluruhan</p>
               <div className="flex items-center gap-2 mt-1">
                 <Award className="text-green-600" size={28} />
-                <h3 className="text-xl font-bold text-green-700">
-                  {Number(avgHafalan) >= 90 ? "MUMTAZ" : Number(avgHafalan) >= 80 ? "JAYYID" : "MAQBUL"}
-                </h3>
+                <h3 className="text-xl font-bold text-green-700">{Number(avgHafalan) >= 90 ? "MUMTAZ" : Number(avgHafalan) >= 80 ? "JAYYID" : "MAQBUL"}</h3>
               </div>
             </Card>
           </div>
 
-          {/* CHART AREA */}
           <Card className="p-5 border-[#c5a059]/30 shadow-sm">
             <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-6">Grafik Tren Nilai</h3>
             <ChartContainer config={chartConfig} className="h-[350px] w-full">
@@ -682,15 +677,7 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
                   <XAxis dataKey="pekan" tickLine={false} axisLine={false} tickMargin={10} className="text-xs text-gray-500" />
                   <YAxis domain={[0, 100]} tickLine={false} axisLine={false} tickMargin={10} className="text-xs text-gray-500" />
-                  
-                  {/* GARIS TARGET KKM */}
-                  <ReferenceLine 
-                    y={80} 
-                    stroke="#ef4444" 
-                    strokeDasharray="4 4" 
-                    label={{ position: "insideTopLeft", value: "Batas KKM (80)", fill: "#ef4444", fontSize: 12, fontWeight: "bold" }} 
-                  />
-                  
+                  <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="4 4" label={{ position: "insideTopLeft", value: "Batas KKM (80)", fill: "#ef4444", fontSize: 12, fontWeight: "bold" }} />
                   <ChartTooltip content={<ChartTooltipContent />} />
                   <Line type="monotone" dataKey="hafalan" name="Ziyadah" stroke={chartConfig.hafalan.color} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
                   <Line type="monotone" dataKey="murojaah" name="Muroja'ah" stroke={chartConfig.murojaah.color} strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
@@ -699,7 +686,6 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
             </ChartContainer>
           </Card>
 
-          {/* TABLE DETAIL */}
           <Card className="overflow-hidden border-[#c5a059]/30 shadow-sm mt-4">
             <div className="bg-[#113f59] text-white px-4 py-3 font-medium">Rekap Nilai Terakhir</div>
             <div className="overflow-x-auto">
@@ -720,11 +706,7 @@ function MuhaffidzStatistik({ state }: { state: AppState }) {
                       <td className="py-3 px-4 text-gray-500">{d.tanggal}</td>
                       <td className="py-3 px-4 font-bold text-[#113f59]">{d.hafalan}</td>
                       <td className="py-3 px-4 font-bold text-[#c5a059]">{d.murojaah}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded text-xs font-bold ${d.status === 'Aman' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {d.status}
-                        </span>
-                      </td>
+                      <td className="py-3 px-4"><span className={`px-2 py-1 rounded text-xs font-bold ${d.status === 'Aman' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{d.status}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -743,31 +725,53 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
   const halaqah = halaqahs.find(h=>h.muhaffidzId===currentUser.id);
   const santriList = users.filter(u=>halaqah?.santriIds.includes(u.id));
   const myZiyadahs = ziyadahs.filter(z=>santriList.some(s=>s.id===z.santriId));
+  
   const [modal,setModal] = useState<{z?:ZiyadahRekap}|null>(null);
   const makeEmptyZ = ():ZiyadahRekap => ({
     id:uid(),santriId:santriList[0]?.id??"",pekan:1,tahun:new Date().getFullYear(),tanggal:new Date().toISOString().slice(0,10),
     days:DAYS.reduce((a,d)=>({...a,[d]:emptyDay()}),{}) as Record<Day,ZiyadahDay>,evaluasi:"",targetPekanan:""
   });
+  
   const [form,setForm] = useState<ZiyadahRekap>(makeEmptyZ());
-  const openAdd = () => { setForm(makeEmptyZ()); setModal({}); };
-  const openEdit = (z:ZiyadahRekap) => { setForm({...z}); setModal({z}); };
-  const save = () => {
-    if (modal?.z) setZiyadahs(ziyadahs.map(z=>z.id===form.id?form:z));
-    else setZiyadahs([...ziyadahs,form]);
-    setModal(null);
-  };
-// State untuk menyimpan teks pencarian
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Logika filter: cocokan nama santri dengan teks pencarian
+  const openAdd = () => { setForm(makeEmptyZ()); setModal({}); };
+  const openEdit = (z:ZiyadahRekap) => { setForm({...z}); setModal({z}); };
+  
+  const save = async () => {
+    try {
+      if (modal?.z) {
+        const updated = await api.put(`/ziyadahs/${form.id}`, form);
+        setZiyadahs(ziyadahs.map(z=>z.id===updated.id ? updated : z));
+        toast.success("Rekap ziyadah berhasil diperbarui");
+      } else {
+        const created = await api.post("/ziyadahs", form);
+        setZiyadahs([...ziyadahs, created]);
+        toast.success("Rekap ziyadah berhasil ditambahkan");
+      }
+      setModal(null);
+    } catch (e) {
+      toast.error("Gagal menyimpan rekap ziyadah.");
+    }
+  };
+
+  const del = async (id:string) => {
+    if (confirm("Hapus rekap ini?")) {
+      try {
+        await api.del(`/ziyadahs/${id}`);
+        setZiyadahs(ziyadahs.filter(z=>z.id!==id));
+        toast.success("Rekap dihapus");
+      } catch(e) {
+        toast.error("Gagal menghapus rekap.");
+      }
+    }
+  };
+
+  const updateDay = (day:Day,field:keyof ZiyadahDay,val:string) => setForm(f=>({...f,days:{...f.days,[day]:{...f.days[day],[field]:val}}}));
   const filteredZiyadahs = myZiyadahs.filter((z) => {
     const santri = users.find((u) => u.id === z.santriId);
     return santri?.username?.toLowerCase().includes(searchQuery.toLowerCase());
   });
-
-  const del = (id:string) => { if (confirm("Hapus rekap ini?")) setZiyadahs(ziyadahs.filter(z=>z.id!==id)); };
-  const updateDay = (day:Day,field:keyof ZiyadahDay,val:string) =>
-    setForm(f=>({...f,days:{...f.days,[day]:{...f.days[day],[field]:val}}}));
 
   return (
     <div className="space-y-4">
@@ -777,22 +781,12 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
           subtitle={`${filteredZiyadahs.length} rekap ditampilkan`}
           action={
             <div className="flex items-center gap-2">
-              {/* --- Search Bar Baru --- */}
               <div className="relative flex items-center">
                 <Search size={14} className="absolute left-2.5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Cari santri..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-[#113f59] focus:ring-1 focus:ring-[#113f59] bg-gray-50 min-w-[150px] md:min-w-[200px]"
-                />
+                <input type="text" placeholder="Cari santri..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:border-[#113f59] focus:ring-1 focus:ring-[#113f59] bg-gray-50 min-w-[150px] md:min-w-[200px]" />
               </div>
-              {/* ----------------------- */}
-              
-              <Btn onClick={openAdd} size="sm">
-                <Plus size={14}/>Buat Rekap
-              </Btn>
+              <Btn onClick={openAdd} size="sm"><Plus size={14}/>Buat Rekap</Btn>
             </div>
           } 
         />
@@ -808,13 +802,8 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
               </tr>
             </thead>
             <tbody>
-              {/* Gunakan array hasil filter di sini */}
               {filteredZiyadahs.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="text-center py-10 text-[#6b7a8d]">
-                    {searchQuery ? "Santri tidak ditemukan" : "Belum ada rekap ziyadah"}
-                  </td>
-                </tr>
+                <tr><td colSpan={5} className="text-center py-10 text-[#6b7a8d]">{searchQuery ? "Santri tidak ditemukan" : "Belum ada rekap ziyadah"}</td></tr>
               ) : filteredZiyadahs.map((z, i) => {
                 const santri = users.find(u => u.id === z.santriId);
                 return (
@@ -825,12 +814,8 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
                     <td className="py-3 px-3 text-[#6b7a8d]">{z.tanggal}</td>
                     <td className="py-3 px-3">
                       <div className="flex gap-1.5">
-                        <button onClick={() => openEdit(z)} className="p-1.5 rounded-lg hover:bg-[#f0ebd8] text-[#113f59]">
-                          <Edit2 size={14}/>
-                        </button>
-                        <button onClick={() => del(z.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500">
-                          <Trash2 size={14}/>
-                        </button>
+                        <button onClick={() => openEdit(z)} className="p-1.5 rounded-lg hover:bg-[#f0ebd8] text-[#113f59]"><Edit2 size={14}/></button>
+                        <button onClick={() => del(z.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-500"><Trash2 size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -843,8 +828,7 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
       <Modal open={!!modal} onClose={()=>setModal(null)} title={modal?.z?"Edit Rekap Ziyadah":"Buat Rekap Ziyadah"} wide>
         <div className="space-y-5">
           <div className="grid grid-cols-2 gap-4">
-            <Select label="Santri" value={form.santriId} onChange={v=>setForm(f=>({...f,santriId:v}))}
-              options={santriList.map(s=>({value:s.id,label:s.username}))} />
+            <Select label="Santri" value={form.santriId} onChange={v=>setForm(f=>({...f,santriId:v}))} options={santriList.map(s=>({value:s.id,label:s.username}))} />
             <div className="grid grid-cols-2 gap-2">
               <div className="flex flex-col gap-1"><label className="text-sm font-medium text-[#1c2b3a]">Pekan</label>
                 <input type="number" value={form.pekan} onChange={e=>setForm(f=>({...f,pekan:+e.target.value}))} min={1}
@@ -879,7 +863,6 @@ function MuhaffidzZiyadah({ state }: { state:AppState }) {
           <Textarea label="Evaluasi Mingguan" value={form.evaluasi} onChange={v=>setForm(f=>({...f,evaluasi:v}))} rows={2} />
           <Input label="Target Pekanan" value={form.targetPekanan} onChange={v=>setForm(f=>({...f,targetPekanan:v}))} />
           <div className="flex gap-2 justify-end pt-2">
-            {modal?.z && <Btn variant="danger" onClick={()=>{del(form.id);setModal(null);}}>Hapus</Btn>}
             <Btn variant="secondary" onClick={()=>setModal(null)}>Batal</Btn>
             <Btn variant="primary" onClick={save}>Simpan</Btn>
           </div>
@@ -910,17 +893,50 @@ function MuhaffidzTarget({ state }: { state:AppState }) {
 
   const openAdd = () => { const e=makeEmpty(); setForm(e); setModal({}); };
   const openEdit = (t:WeekTarget) => { setForm({...t}); setModal({t}); };
-  const save = () => {
-    if (modal?.t) setTargets(targets.map(t=>t.id===form.id?form:t));
-    else setTargets([...targets,form]);
-    setModal(null);
+  
+  const save = async () => {
+    try {
+      if (modal?.t) {
+        const updated = await api.put(`/targets/${form.id}`, form);
+        setTargets(targets.map(t=>t.id===updated.id?updated:t));
+        toast.success("Target berhasil diperbarui");
+      } else {
+        const created = await api.post("/targets", form);
+        setTargets([...targets, created]);
+        toast.success("Target berhasil ditambahkan");
+      }
+      setModal(null);
+    } catch(e) {
+      toast.error("Gagal menyimpan target");
+    }
   };
-  const del = (id:string) => { if(confirm("Hapus target ini?")) setTargets(targets.filter(t=>t.id!==id)); };
-  const setActive = (santriId:string, targetId:string) => {
-    setTargets(targets.map(t=>{
-      if (t.santriId!==santriId) return t;
-      return {...t,isActiveWeek:t.id===targetId};
-    }));
+
+  const del = async (id:string) => {
+    if(confirm("Hapus target ini?")) {
+      try {
+        await api.del(`/targets/${id}`);
+        setTargets(targets.filter(t=>t.id!==id));
+        toast.success("Target dihapus");
+      } catch(e) {
+        toast.error("Gagal menghapus target");
+      }
+    }
+  };
+
+  const setActive = async (santriId:string, targetId:string) => {
+    try {
+      const updates = targets.filter(t => t.santriId === santriId).map(t => {
+        const isActiveWeek = t.id === targetId;
+        return api.put(`/targets/${t.id}`, { ...t, isActiveWeek });
+      });
+      const results = await Promise.all(updates);
+      
+      const newTargetsMap = new Map(results.map(r => [r.id, r]));
+      setTargets(targets.map(t => newTargetsMap.has(t.id) ? newTargetsMap.get(t.id)! : t));
+      toast.success("Pekan aktif berhasil diatur");
+    } catch(e) {
+      toast.error("Gagal mengatur pekan aktif");
+    }
   };
 
   const grouped = santriList.map(s=>({ santri:s, targets:myTargets.filter(t=>t.santriId===s.id).sort((a,b)=>b.pekan-a.pekan) }));
@@ -978,7 +994,6 @@ function MuhaffidzTarget({ state }: { state:AppState }) {
             ))}
           </div>
           <div className="flex gap-2 justify-end pt-2">
-            {modal?.t && <Btn variant="danger" onClick={()=>{del(form.id);setModal(null);}}>Hapus</Btn>}
             <Btn variant="secondary" onClick={()=>setModal(null)}>Batal</Btn>
             <Btn variant="primary" onClick={save}>Simpan</Btn>
           </div>
@@ -995,165 +1010,96 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
   const santriList = users.filter((u) => halaqah?.santriIds.includes(u.id));
   const myUjians = ujians.filter((u) => u.muhaffidzId === currentUser.id);
 
-  // State untuk Panel Pengaturan
   const [selectedSantriId, setSelectedSantriId] = useState(santriList[0]?.id ?? "");
   const [jmlJuz, setJmlJuz] = useState<number>(3);
-  
-  // State untuk Form Penilaian Akhir
   const [nilai, setNilai] = useState({ hifdz: 0, tajwid: 0, tartil: 0 });
   const [timer, setTimer] = useState(0);
 
-  // Mendapatkan ujian yang sedang aktif untuk santri yang DIPILIH di dropdown
-  const activeUjian = myUjians.find(
-    (u) => u.santriId === selectedSantriId && (u.status === "active" || u.status === "submitted")
-  );
-
+  const activeUjian = myUjians.find(u => u.santriId === selectedSantriId && (u.status === "active" || u.status === "submitted"));
   const rataRata = ((nilai.hifdz + nilai.tajwid + nilai.tartil) / 3).toFixed(2);
 
-  // Timer Effect
   useEffect(() => {
-    if (!activeUjian) {
-      setTimer(0);
-      return;
-    }
+    if (!activeUjian) { setTimer(0); return; }
     const elapsed = Math.floor((Date.now() - activeUjian.startTime) / 1000);
     setTimer(elapsed);
     const iv = setInterval(() => setTimer((p) => p + 1), 1000);
     return () => clearInterval(iv);
   }, [activeUjian?.id]);
 
-  // Handler Aktivasi
-  const aktivasi = () => {
-    if (activeUjian) {
-      alert("Santri ini sudah memiliki ujian aktif!");
-      return;
-    }
-    // Logika +5 baris cadangan
-  const totalBaris = jmlJuz + 5; 
-  
-  // Tambahkan ": KertasTasmi" setelah kurung parameter ()
-  const initialKertasTasmi = Array.from({ length: totalBaris }).map((): KertasTasmi => ({
-    mustami: "",
-    status: "", // Sekarang TypeScript tahu ini adalah tipe kosong khusus dari status
-    taqdir: "", // Sama halnya dengan taqdir, agar tidak dianggap string sembarangan
-    khoto: 0,
-    tanbih: 0,
-    catatan: "",
-  }));
-    setUjians([
-      ...ujians,
-      {
-        id: uid(),
-        santriId: selectedSantriId,
-        muhaffidzId: currentUser.id,
-        juz: jmlJuz,
-        status: "active",
-        startTime: Date.now(),
-        kertasTasmi: initialKertasTasmi,
-      },
-    ]);
-  };
-
-  // Fungsi agar Muhaffidz bisa mengubah baris tertentu (untuk kasus kecurangan)
-  const updateBarisMuhaffidz = (index: number, field: string, value: string) => {
-    if (!activeUjian) return;
-    setUjians(
-      ujians.map((u) => {
-        if (u.id === activeUjian.id) {
-          const newKertas = [...u.kertasTasmi];
-          newKertas[index] = { ...newKertas[index], [field]: value };
-          return { ...u, kertasTasmi: newKertas };
-        }
-        return u;
-      })
-    );
-  };
-
-  // 1. Tambahkan useEffect untuk memicu Toast Notifikasi
   useEffect(() => {
     if (activeUjian && activeUjian.status === "submitted") {
-      // Memunculkan pop-up notifikasi di layar Muhaffidz
-      toast.info("Santri Siap Dinilai! 🔔", {
-        description: "Santri telah menyelesaikan setoran. Silakan periksa Kertas Tasmi' dan berikan penilaian akhir.",
-      });
+      toast.info("Santri Siap Dinilai! 🔔", { description: "Santri telah menyelesaikan setoran." });
     }
-  }, [activeUjian?.status]); // Hanya terpanggil jika status ujian yang aktif berubah
+  }, [activeUjian?.status]);
 
-  // Handler Selesai
-  const selesaikan = () => {
+  const aktivasi = async () => {
+    if (activeUjian) { alert("Santri ini sudah memiliki ujian aktif!"); return; }
+    try {
+      const initialKertasTasmi = Array.from({ length: jmlJuz + 5 }).map((): KertasTasmi => ({ mustami: "", status: "", taqdir: "", khoto: 0, tanbih: 0, catatan: "" }));
+      const newUjian = await api.post("/ujians", { id: uid(), santriId: selectedSantriId, muhaffidzId: currentUser.id, juz: jmlJuz, status: "active", startTime: Date.now(), kertasTasmi: initialKertasTasmi });
+      setUjians([...ujians, newUjian]);
+      toast.success("Ujian diaktifkan!");
+    } catch(e) { toast.error("Gagal mengaktifkan ujian."); }
+  };
+
+  const updateBarisMuhaffidz = async (index: number, field: string, value: string) => {
     if (!activeUjian) return;
-    setUjians(
-      ujians.map((u) =>
-        u.id === activeUjian.id
-          ? { ...u, status: "completed", nilai: { ...nilai, rata: parseFloat(rataRata) } }
-          : u
-      )
-    );
-    setNilai({ hifdz: 0, tajwid: 0, tartil: 0 });
+    try {
+      const newKertas = [...activeUjian.kertasTasmi];
+      newKertas[index] = { ...newKertas[index], [field]: value };
+      const updated = await api.put(`/ujians/${activeUjian.id}`, { ...activeUjian, kertasTasmi: newKertas });
+      setUjians(ujians.map((u) => u.id === updated.id ? updated : u));
+    } catch(e) { toast.error("Gagal memperbarui kertas tasmi."); }
+  };
+
+  const selesaikan = async () => {
+    if (!activeUjian) return;
+    try {
+      const payload = { ...activeUjian, status: "completed", nilai: { ...nilai, rata: parseFloat(rataRata) } };
+      const updated = await api.put(`/ujians/${activeUjian.id}`, payload);
+      setUjians(ujians.map((u) => u.id === updated.id ? updated : u));
+      setNilai({ hifdz: 0, tajwid: 0, tartil: 0 });
+      toast.success("Penilaian berhasil disimpan!");
+    } catch(e) { toast.error("Gagal menyimpan ujian."); }
   };
 
   const completed = myUjians.filter((u) => u.status === "completed");
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10">
-      {/* 1. PANEL PENGATURAN UJIAN */}
       <Card className="p-5 border-[#c5a059]/40">
-        <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
-          Panel Pengaturan Ujian (Muhaffidz)
-        </h3>
+        <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">Panel Pengaturan Ujian</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-          <Select
-            label="Pilih Santri:"
-            value={selectedSantriId}
-            onChange={setSelectedSantriId}
-            options={[
-              { value: "", label: "- Pilih Santri -" },
-              ...santriList.map((s) => ({ value: s.id, label: s.username })),
-            ]}
-          />
-          <Input
-            label="Jumlah Juz Ujian:"
-            type="number"
-            value={jmlJuz.toString()}
-            onChange={(v) => setJmlJuz(Number(v))}
-          />
-          <Btn variant="primary" onClick={aktivasi} className="w-full py-2.5 bg-[#113f59] text-white">
-            Aktifkan Ujian & Durasi
-          </Btn>
+          <Select label="Pilih Santri:" value={selectedSantriId} onChange={setSelectedSantriId}
+            options={[{ value: "", label: "- Pilih Santri -" }, ...santriList.map((s) => ({ value: s.id, label: s.username }))]} />
+          <Input label="Jumlah Juz Ujian:" type="number" value={jmlJuz.toString()} onChange={(v) => setJmlJuz(Number(v))} min={1} />
+          <Btn variant="primary" onClick={aktivasi} className="w-full py-2.5 bg-[#113f59] text-white">Aktifkan Ujian & Durasi</Btn>
         </div>
       </Card>
 
       {activeUjian && (
         <>
-          {/* 2. STATUS UJIAN */}
           <Card className="p-4 bg-[#fdfbf7] flex justify-between items-center border-[#c5a059]/30">
             <div>
-              <p className="text-sm font-bold text-[#1c2b3a]">
-                Status Ujian: <span className="text-green-600">PERSIAPAN</span>
-              </p>
+              <p className="text-sm font-bold text-[#1c2b3a]">Status Ujian: <span className="text-green-600">PERSIAPAN</span></p>
               <p className="text-sm text-[#6b7a8d]">Jumlah Juz: {activeUjian.juz} Juz</p>
             </div>
             <div className="text-right">
               <p className="text-xs text-[#6b7a8d] mb-1">Durasi Ujian:</p>
-              <p className="text-xl font-mono font-bold text-[#113f59] bg-white px-3 py-1 rounded border border-[#c5a059]/20">
-                {fmt(timer)}
-              </p>
+              <p className="text-xl font-mono font-bold text-[#113f59] bg-white px-3 py-1 rounded border border-[#c5a059]/20">{fmt(timer)}</p>
             </div>
           </Card>
-{/* Banner Notifikasi Standby */}
+
           {activeUjian.status === "submitted" && (
             <div className="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg flex items-start md:items-center gap-3 shadow-sm animate-in fade-in slide-in-from-top-4">
               <span className="text-2xl">✅</span>
               <div>
                 <p className="font-bold text-base">Santri Siap Diuji / Dinilai!</p>
-                <p className="text-sm mt-1">
-                  Kertas Tasmi' telah dikirim oleh santri/mustami'. Silakan evaluasi tabel di bawah dan kunci nilai di Form Penilaian Akhir.
-                </p>
+                <p className="text-sm mt-1">Kertas Tasmi' telah dikirim. Silakan evaluasi tabel di bawah dan kunci nilai di Form Penilaian Akhir.</p>
               </div>
             </div>
           )}
           
-          {/* 3. KERTAS TASMI' (Read-Only Table) */}
           <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">Kertas Tasmi'</div>
           <Card className="overflow-x-auto shadow-sm border-[#113f59]/20">
             <table className="w-full text-sm text-center" dir="rtl">
@@ -1169,90 +1115,49 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
                 </tr>
               </thead>
               <tbody>
-                {/* Looping baris sesuai jumlah juz dari ujian aktif */}
-                {Array.from({ length: activeUjian.juz + 5}).map((_, i) => (
+                {activeUjian.kertasTasmi.map((row: any, i: number) => (
                   <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
                     <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
-                    <td className="py-2 px-2 border-l border-[#c5a059]/20">جزء {i + 1}</td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20">جزء {i < activeUjian.juz ? 1 : 1}</td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20"><div className="flex justify-center items-center gap-1"><button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button><input disabled value={row.tanbih} className="w-8 text-center bg-gray-50 border border-gray-200" /><button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button></div></td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20"><div className="flex justify-center items-center gap-1"><button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button><input disabled value={row.khoto} className="w-8 text-center bg-gray-50 border border-gray-200" /><button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button></div></td>
+                    <td className="py-2 px-2 border-l border-[#c5a059]/20"><select disabled className="bg-gray-50 border border-gray-200 rounded px-1 cursor-not-allowed"><option>{row.taqdir || '- ممتاز -'}</option></select></td>
                     <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                      <div className="flex justify-center items-center gap-1">
-                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button>
-                        <input disabled value="0" className="w-8 text-center bg-gray-50 border border-gray-200" />
-                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button>
-                      </div>
+                      <select value={row.status || ""} onChange={(e) => updateBarisMuhaffidz(i, "status", e.target.value)} className="w-full bg-transparent border-none text-center outline-none cursor-pointer text-[#113f59]">
+                        <option value="">- اختر -</option><option value="maqbul">- مقبول -</option><option value="mardud">- مردود -</option>
+                      </select>
                     </td>
-                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                       <div className="flex justify-center items-center gap-1">
-                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">-</button>
-                        <input disabled value="0" className="w-8 text-center bg-gray-50 border border-gray-200" />
-                        <button disabled className="px-2 bg-gray-100 text-gray-400 rounded cursor-not-allowed">+</button>
-                      </div>
-                    </td>
-                    <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                       <select disabled className="bg-gray-50 border border-gray-200 rounded px-1 cursor-not-allowed">
-                         <option>- ممتاز -</option>
-                       </select>
-                    </td>
-                   <td className="py-2 px-2 border-l border-[#c5a059]/20">
-  <select 
-    value={activeUjian.kertasTasmi[i]?.status || ""} 
-    onChange={(e) => updateBarisMuhaffidz(i, "status", e.target.value)}
-    className="w-full bg-transparent border-none text-center outline-none cursor-pointer text-[#113f59]"
-  >
-    <option value="">- اختر -</option>
-    <option value="maqbul">- مقبول -</option>
-    <option value="mardud">- مردود -</option>
-  </select>
-</td>
-                    <td className="py-2 px-2">
-                       <input disabled placeholder="الأخ/الأستاذ" className="w-full text-center bg-gray-50 border border-gray-200" />
-                    </td>
+                    <td className="py-2 px-2"><input disabled value={row.mustami} placeholder="الأخ/الأستاذ" className="w-full text-center bg-gray-50 border border-gray-200" /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </Card>
 
-          {/* 4. FORM PENILAIAN AKHIR UJIAN */}
-          <Card className="p-5 border-[#c5a059]/40">
-             <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
-               Form Penilaian Akhir Ujian (Muhaffidz)
-             </h3>
+          <Card className="p-5 border-[#c5a059]/40 mt-6">
+             <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">Form Penilaian Akhir Ujian</h3>
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                <Input label="Nilai Hifdz (0-100):" type="number" value={nilai.hifdz.toString()} onChange={v => setNilai({...nilai, hifdz: Number(v)})} />
-                <Input label="Nilai Tajwid (0-100):" type="number" value={nilai.tajwid.toString()} onChange={v => setNilai({...nilai, tajwid: Number(v)})} />
-                <Input label="Nilai Tartil (0-100):" type="number" value={nilai.tartil.toString()} onChange={v => setNilai({...nilai, tartil: Number(v)})} />
+                <Input label="Nilai Hifdz (0-100):" type="number" value={nilai.hifdz.toString()} onChange={v => setNilai({...nilai, hifdz: Number(v)})} min={0} />
+                <Input label="Nilai Tajwid (0-100):" type="number" value={nilai.tajwid.toString()} onChange={v => setNilai({...nilai, tajwid: Number(v)})} min={0} />
+                <Input label="Nilai Tartil (0-100):" type="number" value={nilai.tartil.toString()} onChange={v => setNilai({...nilai, tartil: Number(v)})} min={0} />
              </div>
              <div className="flex flex-col md:flex-row justify-between items-center bg-[#f8f5ef] p-3 rounded-lg border border-[#c5a059]/20">
-                <p className="font-bold text-[#1c2b3a] mb-2 md:mb-0">
-                  Hasil Akhir (Rata-rata): <span className="text-[#113f59]">{rataRata}</span>
-                </p>
-                <Btn variant="primary" onClick={selesaikan} className="bg-[#113f59]">
-                  Simpan Penilaian & Selesaikan Ujian
-                </Btn>
+                <p className="font-bold text-[#1c2b3a] mb-2 md:mb-0">Hasil Akhir (Rata-rata): <span className="text-[#113f59]">{rataRata}</span></p>
+                <Btn variant="primary" onClick={selesaikan} className="bg-[#113f59]">Simpan Penilaian & Selesaikan Ujian</Btn>
              </div>
           </Card>
         </>
       )}
 
-      {/* 5. RIWAYAT UJIAN */}
       <Card className="p-5 border-[#c5a059]/40 mt-8">
-         <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">
-           Riwayat Ujian Kenaikan Juz Selesai
-         </h3>
+         <h3 className="font-playfair text-[#113f59] font-bold text-lg mb-4 border-b border-[#c5a059]/20 pb-2">Riwayat Ujian Selesai</h3>
          <table className="w-full text-sm text-center">
             <thead className="bg-[#113f59] text-white">
-              <tr>
-                <th className="py-2.5 px-3">No</th>
-                <th className="py-2.5 px-3">Nama Santri</th>
-                <th className="py-2.5 px-3">Jumlah Juz</th>
-                <th className="py-2.5 px-3">Hasil Akhir</th>
-                <th className="py-2.5 px-3">Aksi</th>
-              </tr>
+              <tr><th className="py-2.5 px-3">No</th><th className="py-2.5 px-3">Nama Santri</th><th className="py-2.5 px-3">Jumlah Juz</th><th className="py-2.5 px-3">Hasil Akhir</th></tr>
             </thead>
             <tbody>
                {completed.length === 0 ? (
-                 <tr><td colSpan={5} className="py-4 text-[#6b7a8d] italic">Memuat riwayat...</td></tr>
+                 <tr><td colSpan={4} className="py-4 text-[#6b7a8d] italic">Belum ada riwayat ujian.</td></tr>
                ) : (
                  completed.map((u, i) => (
                    <tr key={u.id} className="border-b border-[#c5a059]/20">
@@ -1260,9 +1165,6 @@ function MuhaffidzUjian({ state }: { state: AppState }) {
                      <td className="py-2.5 font-bold">{users.find(s => s.id === u.santriId)?.username}</td>
                      <td className="py-2.5">{u.juz} Juz</td>
                      <td className="py-2.5 text-green-600 font-bold">{u.nilai?.rata || 0}</td>
-                     <td className="py-2.5">
-                       <Btn variant="primary" size="sm" className="bg-[#113f59] px-4 py-1">Lihat</Btn>
-                     </td>
                    </tr>
                  ))
                )}
@@ -1352,9 +1254,15 @@ function SantriTarget({ state }: { state:AppState }) {
   const myTargets = targets.filter(t=>t.santriId===currentUser.id);
   const activeTarget = myTargets.find(t=>t.isActiveWeek);
 
-  const toggleDone = (day:Day) => {
+  const toggleDone = async (day:Day) => {
     if (!activeTarget) return;
-    setTargets(targets.map(t=>t.id===activeTarget.id ? { ...t, done:{ ...t.done, [day]:!t.done[day] } } : t));
+    try {
+      const newDone = { ...activeTarget.done, [day]: !activeTarget.done[day] };
+      const updated = await api.put(`/targets/${activeTarget.id}`, { ...activeTarget, done: newDone });
+      setTargets(targets.map(t=>t.id===updated.id ? updated : t));
+    } catch(e) {
+      toast.error("Gagal memperbarui target harian.");
+    }
   };
 
   const prog = activeTarget ? pct(activeTarget.done) : 0;
@@ -1425,82 +1333,57 @@ function SantriTarget({ state }: { state:AppState }) {
 function SantriUjian({ state }: { state: AppState }) {
   const { currentUser, ujians, setUjians } = state;
 
-  // Cari ujian santri yang sedang aktif
-  const activeUjian = ujians.find(
-    (u) => u.santriId === currentUser.id && u.status === "active"
-  );
+  const activeUjian = ujians.find((u) => u.santriId === currentUser.id && u.status === "active");
 
-  // Fungsi helper untuk update data tabel per baris
-  const updateBaris = (index: number, field: string, value: string | number) => {
+  const updateBaris = async (index: number, field: string, value: string | number) => {
     if (!activeUjian) return;
-    setUjians(
-      ujians.map((u) => {
-        if (u.id === activeUjian.id) {
-          const newKertas = [...u.kertasTasmi];
-          newKertas[index] = { ...newKertas[index], [field]: value };
-          return { ...u, kertasTasmi: newKertas };
-        }
-        return u;
-      })
-    );
+    try {
+      const newKertas = [...activeUjian.kertasTasmi];
+      newKertas[index] = { ...newKertas[index], [field]: value };
+      const updated = await api.put(`/ujians/${activeUjian.id}`, { ...activeUjian, kertasTasmi: newKertas });
+      setUjians(ujians.map((u) => u.id === updated.id ? updated : u));
+    } catch(e) {
+      toast.error("Gagal memperbarui nilai kertas.");
+    }
   };
 
   const ubahCount = (index: number, field: "khoto" | "tanbih", delta: number) => {
     if (!activeUjian) return;
     const currentVal = activeUjian.kertasTasmi[index][field] || 0;
     let newVal = currentVal + delta;
-    if (newVal < 0) newVal = 0; // Cegah minus
+    if (newVal < 0) newVal = 0;
     updateBaris(index, field, newVal);
   };
 
-  if (!activeUjian) {
-    return (
-      <div className="text-center text-gray-500 py-10">
-        Belum ada ujian yang diaktifkan oleh Muhaffidz.
-      </div>
-    );
-  }
+  if (!activeUjian) return <div className="text-center text-gray-500 py-10">Belum ada ujian yang diaktifkan oleh Muhaffidz.</div>;
 
- // Menghitung total juz yang sudah berstatus 'maqbul'
   const jumlahMaqbul = activeUjian?.kertasTasmi.filter(row => row.status === "maqbul").length || 0;
-  
-  // Indikator bahwa tasmi selesai (jumlah maqbul sama dengan target juz)
   const isTasmiSelesai = activeUjian && jumlahMaqbul === activeUjian.juz;
 
-  const kirimKeMuhaffidz = () => {
+  const kirimKeMuhaffidz = async () => {
     if (!activeUjian) return;
-
-    // Pop-up Konfirmasi
     const konfirmasi = window.confirm("Antum sudah siap untuk ujian?");
-    if (!konfirmasi) return; // Batal kirim jika user memilih 'Cancel'
+    if (!konfirmasi) return;
     
-    setUjians(
-      ujians.map((u) => 
-        u.id === activeUjian.id ? { ...u, status: "submitted" } : u
-      )
-    );
-    
-    toast.success("Berhasil dikirim!", {
-      description: "Kertas Tasmi' berhasil dikirim. Menunggu penilaian Muhaffidz."
-    });
+    try {
+      const updated = await api.put(`/ujians/${activeUjian.id}`, { ...activeUjian, status: "submitted" });
+      setUjians(ujians.map((u) => u.id === updated.id ? updated : u));
+      toast.success("Berhasil dikirim!", { description: "Kertas Tasmi' berhasil dikirim. Menunggu penilaian Muhaffidz." });
+    } catch(e) {
+      toast.error("Gagal mengirim ujian.");
+    }
   };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-10">
-      {/* Banner Status Ujian (Bisa gunakan komponen Card timer yang sama dengan guru) */}
       <Card className="p-4 bg-[#fdfbf7] flex justify-between items-center border-[#c5a059]/30">
          <div>
-            <p className="text-sm font-bold text-[#1c2b3a]">
-               Status Ujian: <span className="text-green-600">PERSIAPAN</span>
-            </p>
+            <p className="text-sm font-bold text-[#1c2b3a]">Status Ujian: <span className="text-green-600">PERSIAPAN</span></p>
             <p className="text-sm text-[#6b7a8d]">Jumlah Juz: {activeUjian.juz} Juz</p>
          </div>
-         {/* Timer di sini */}
       </Card>
 
-      <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">
-        Kertas Tasmi'
-      </div>
+      <div className="text-center font-playfair font-bold text-[#113f59] text-xl mt-4">Kertas Tasmi'</div>
 
       <Card className="overflow-x-auto shadow-sm border-[#113f59]/20">
         <table className="w-full text-sm text-center" dir="rtl">
@@ -1518,15 +1401,8 @@ function SantriUjian({ state }: { state: AppState }) {
           <tbody>
             {activeUjian.kertasTasmi.map((row: KertasTasmi, i: number) => (
               <tr key={i} className="border-b border-[#c5a059]/20 bg-white">
-                {/* Nomor Urut */}
                 <td className="py-2 px-2 border-l border-[#c5a059]/20 font-bold">{i + 1}</td>
-                
-                {/* Nama Juz (Otomatis ulang angka 1 atau biarkan bisa diedit jika perlu) */}
-                <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                  جزء {i < activeUjian.juz ? 1 : 1 /* Sesuaikan label juz */}
-                </td>
-
-                {/* Tanbih */}
+                <td className="py-2 px-2 border-l border-[#c5a059]/20">جزء {i < activeUjian.juz ? 1 : 1}</td>
                 <td className="py-2 px-2 border-l border-[#c5a059]/20">
                   <div className="flex justify-center items-center gap-1">
                     <button onClick={() => ubahCount(i, "tanbih", -1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">-</button>
@@ -1534,8 +1410,6 @@ function SantriUjian({ state }: { state: AppState }) {
                     <button onClick={() => ubahCount(i, "tanbih", 1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">+</button>
                   </div>
                 </td>
-
-                {/* Khoto' */}
                 <td className="py-2 px-2 border-l border-[#c5a059]/20">
                   <div className="flex justify-center items-center gap-1">
                     <button onClick={() => ubahCount(i, "khoto", -1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">-</button>
@@ -1543,71 +1417,32 @@ function SantriUjian({ state }: { state: AppState }) {
                     <button onClick={() => ubahCount(i, "khoto", 1)} className="px-2 bg-gray-100 border rounded shadow-sm hover:bg-gray-200">+</button>
                   </div>
                 </td>
-
-                {/* Taqdir */}
                 <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                  <select 
-                    value={row.taqdir} 
-                    onChange={(e) => updateBaris(i, "taqdir", e.target.value)}
-                    className="w-full bg-transparent border-none text-center outline-none cursor-pointer"
-                  >
-                    <option value="">- اختر -</option>
-                    <option value="mumtaz">- ممتاز -</option>
-                    <option value="jayyid_jiddan">- جيد جدا -</option>
-                    <option value="jayyid">- جيد -</option>
-                    <option value="maqbul">- مقبول -</option>
+                  <select value={row.taqdir} onChange={(e) => updateBaris(i, "taqdir", e.target.value)} className="w-full bg-transparent border-none text-center outline-none cursor-pointer">
+                    <option value="">- اختر -</option><option value="mumtaz">- ممتاز -</option><option value="jayyid_jiddan">- جيد جدا -</option><option value="jayyid">- جيد -</option><option value="maqbul">- مقبول -</option>
                   </select>
                 </td>
-
-                {/* Maqbul / Mardud */}
                 <td className="py-2 px-2 border-l border-[#c5a059]/20">
-                  <select 
-                    value={row.status} 
-                    onChange={(e) => updateBaris(i, "status", e.target.value)}
-                    className="w-full bg-transparent border-none text-center outline-none cursor-pointer"
-                  >
-                    <option value="">- اختر -</option>
-                    <option value="maqbul">- مقبول -</option>
-                    <option value="mardud">- مردود -</option>
+                  <select value={row.status} onChange={(e) => updateBaris(i, "status", e.target.value)} className="w-full bg-transparent border-none text-center outline-none cursor-pointer">
+                    <option value="">- اختر -</option><option value="maqbul">- مقبول -</option><option value="mardud">- مردود -</option>
                   </select>
                 </td>
-
-                {/* Nama Mustami' */}
                 <td className="py-2 px-2">
-                  <input 
-                    type="text"
-                    placeholder="الأخ/الأستاذ" 
-                    value={row.mustami}
-                    onChange={(e) => updateBaris(i, "mustami", e.target.value)}
-                    className="w-full text-center bg-transparent border-none outline-none" 
-                  />
-
+                  <input type="text" placeholder="الأخ/الأستاذ" value={row.mustami} onChange={(e) => updateBaris(i, "mustami", e.target.value)} className="w-full text-center bg-transparent border-none outline-none" />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
-      {/* Tombol Kirim akan muncul hanya jika tasmi sudah selesai */}
       {activeUjian.status === "active" && isTasmiSelesai && (
         <div className="mt-6 flex justify-center">
-          <button 
-            onClick={kirimKeMuhaffidz}
-            className="w-full md:w-1/2 py-3 bg-[#c5a059] hover:bg-[#b08d4a] text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2"
-          >
-            🔔 Kirim ke Muhaffidz
-          </button>
+          <button onClick={kirimKeMuhaffidz} className="w-full md:w-1/2 py-3 bg-[#c5a059] hover:bg-[#b08d4a] text-white font-bold rounded-lg shadow transition-colors flex items-center justify-center gap-2">🔔 Kirim ke Muhaffidz</button>
         </div>
       )}
-
-      {/* Pesan info jika belum selesai */}
       {activeUjian.status === "active" && !isTasmiSelesai && (
-        <div className="mt-6 text-center text-sm text-[#6b7a8d] italic">
-          *Tombol kirim akan muncul setelah {activeUjian.juz} Juz diselesaikan (berstatus "مقبول").
-        </div>
+        <div className="mt-6 text-center text-sm text-[#6b7a8d] italic">*Tombol kirim akan muncul setelah {activeUjian.juz} Juz diselesaikan (berstatus "مقبول").</div>
       )}
-      
-      {/* Tombol Kirim (Opsional jika santri butuh trigger manual) */}
     </div>
   );
 }
@@ -1616,26 +1451,58 @@ function SantriUjian({ state }: { state: AppState }) {
 export default function App() {
   const [currentUser,setCurrentUserState] = useState<User|null>(null);
   const [authPage,setAuthPage] = useState<"login"|"register">("login");
-  const [users,setUsers] = useState<User[]>(INIT_USERS);
-  const [halaqahs,setHalaqahs] = useState<Halaqah[]>(INIT_HALAQAH);
-  const [targets,setTargets] = useState<WeekTarget[]>(INIT_TARGETS);
-  const [ziyadahs,setZiyadahs] = useState<ZiyadahRekap[]>(INIT_ZIYADAH);
-  const [ujians,setUjians] = useState<Ujian[]>(INIT_UJIAN);
+  const [currentPage,setCurrentPage] = useState<Page>("admin-users");
+  
+  // Semua state diinisialisasi kosong (bukan dummy lagi)
+  const [users,setUsers] = useState<User[]>([]);
+  const [halaqahs,setHalaqahs] = useState<Halaqah[]>([]);
+  const [targets,setTargets] = useState<WeekTarget[]>([]);
+  const [ziyadahs,setZiyadahs] = useState<ZiyadahRekap[]>([]);
+  const [ujians,setUjians] = useState<Ujian[]>([]);
+  
+  const [loading, setLoading] = useState(true);
+
+  // Ambil Data dari API PostgreSQL saat aplikasi dimuat pertama kali
+  useEffect(() => {
+    const fetchAllData = async () => {
+      try {
+        const [u, h, t, z, uj] = await Promise.all([
+          api.get("/users"),
+          api.get("/halaqahs"),
+          api.get("/targets"),
+          api.get("/ziyadahs"),
+          api.get("/ujians")
+        ]);
+        setUsers(u); setHalaqahs(h); setTargets(t); setZiyadahs(z); setUjians(uj);
+      } catch (error) {
+        console.error("Gagal terhubung ke Backend API:", error);
+        toast.error("Gagal mengambil data dari database PostgreSQL.");
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAllData();
+  }, []);
 
   const defaultPage = (u:User): Page =>
     u.role==="admin" ? "admin-users" : u.role==="muhaffidz" ? "muhaffidz-ziyadah" : "santri-ziyadah";
-
-  const [currentPage,setCurrentPage] = useState<Page>("admin-users");
 
   const setCurrentUser = (u:User|null) => {
     setCurrentUserState(u);
     if (u) setCurrentPage(defaultPage(u));
   };
 
+  if (loading) {
+    return <div className="h-screen w-screen flex flex-col items-center justify-center bg-[#fdfbf7] gap-3">
+      <Loader2 size={40} className="text-[#c5a059] animate-spin" />
+      <p className="font-playfair text-[#113f59] font-bold">Menghubungkan ke Database...</p>
+    </div>;
+  }
+
   if (!currentUser) {
     return authPage==="login"
-      ? <LoginPage onLogin={u=>setCurrentUser(u)} onGoRegister={()=>setAuthPage("register")} />
-      : <RegisterPage onBack={()=>setAuthPage("login")} />;
+      ? <LoginPage onLogin={u=>setCurrentUser(u)} onGoRegister={()=>setAuthPage("register")} users={users} />
+      : <RegisterPage onBack={()=>setAuthPage("login")} onRegisterSuccess={()=>setAuthPage("login")} />;
   }
 
   const state: AppState = {
@@ -1646,14 +1513,14 @@ export default function App() {
   const renderPage = () => {
     switch(currentPage) {
       case "admin-users":      return <AdminUsers state={state}/>;
-      case "admin-halaqah":   return <AdminHalaqah state={state}/>;
+      case "admin-halaqah":    return <AdminHalaqah state={state}/>;
       case "muhaffidz-ziyadah": return <MuhaffidzZiyadah state={state}/>;
       case "muhaffidz-target":  return <MuhaffidzTarget state={state}/>;
       case "muhaffidz-statistik": return <MuhaffidzStatistik state={state}/>;
       case "muhaffidz-ujian":   return <MuhaffidzUjian state={state}/>;
-      case "santri-ziyadah":  return <SantriZiyadah state={state}/>;
-      case "santri-target":   return <SantriTarget state={state}/>;
-      case "santri-ujian":    return <SantriUjian state={state}/>;
+      case "santri-ziyadah":   return <SantriZiyadah state={state}/>;
+      case "santri-target":    return <SantriTarget state={state}/>;
+      case "santri-ujian":     return <SantriUjian state={state}/>;
       default: return null;
     }
   };

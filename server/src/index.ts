@@ -138,7 +138,36 @@ app.put('/api/ujians/:id', async (req, res) => {
   res.json(ujian);
 });
 
-// Jalankan Server
-app.listen(PORT, () => {
-  console.log(`✅ Backend Server berjalan di http://localhost:${PORT}`);
-});
+// ==========================================
+// AUTO-SEEDER & JALANKAN SERVER
+// ==========================================
+async function startServer() {
+  try {
+    // Cek apakah sudah ada akun admin di database
+    const adminExists = await prisma.user.findFirst({
+      where: { role: "admin" }
+    });
+
+    // Jika belum ada (database masih kosong), suntikkan akun admin default
+    if (!adminExists) {
+      await prisma.user.create({
+        data: {
+          username: "Admin Utama",
+          email: "admin@tahfidz.id",
+          password: "admin123",
+          role: "admin"
+        }
+      });
+      console.log("💉 Akun Admin default berhasil disuntikkan ke database!");
+    }
+
+    // Jalankan server Express
+    app.listen(PORT, () => {
+      console.log(`✅ Backend Server berjalan di http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Gagal menjalankan server:", error);
+  }
+}
+
+startServer();

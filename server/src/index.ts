@@ -2,17 +2,27 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { Pool } from 'pg'; // 🆕 Import dari package 'pg'
+import { PrismaPg } from '@prisma/adapter-pg'; // 🆕 Import adapter Prisma
 
 dotenv.config();
 
 const app = express();
-const prisma = new PrismaClient();
 const PORT = process.env.PORT || 5000;
+
+// ==========================================
+// SETUP KONEKSI PRISMA V7 (DRIVER ADAPTER)
+// ==========================================
+const connectionString = process.env.DATABASE_URL;
+const pool = new Pool({ connectionString });
+const adapter = new PrismaPg(pool);
+const prisma = new PrismaClient({ adapter });
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
+// ... (Sisa kode endpoint API dan fungsi startServer() di bawahnya biarkan sama persis seperti sebelumnya)
 // ==========================================
 // 1. ENDPOINT USERS
 // ==========================================
